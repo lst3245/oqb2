@@ -8,6 +8,7 @@ from flask_login import current_user
 from natsort import natsorted, natsort_keygen
 
 from app.hierarchy import sort_key as hierarchy_sort_key, qno_sort_key, question_marks
+from app.i18n import display_name, t as _t
 
 
 # ==================== Asset Versions ====================
@@ -439,12 +440,13 @@ GROUP_ID_KEYS = {
     'subchapter': lambda q: q.subchapter_id or 0,
 }
 
-# Human-readable name accessors (None when untagged).
+# Human-readable name accessors (None when untagged), in the request's
+# taxonomy display mode (app.i18n.display_name).
 GROUP_NAME_KEYS = {
-    'topic': lambda q: q.major_topic.name if q.major_topic else None,
-    'subtopic': lambda q: q.major_subtopic.name if q.major_subtopic else None,
-    'chapter': lambda q: q.chapter.name if q.chapter else None,
-    'subchapter': lambda q: q.subchapter.name if q.subchapter else None,
+    'topic': lambda q: display_name(q.major_topic),
+    'subtopic': lambda q: display_name(q.major_subtopic),
+    'chapter': lambda q: display_name(q.chapter),
+    'subchapter': lambda q: display_name(q.subchapter),
 }
 
 # Saved-order accessors (None when untagged); default block order.
@@ -496,7 +498,7 @@ def enumerate_sort_groups(questions, group_fields):
             sort_components = []
             for f in group_fields:
                 name = GROUP_NAME_KEYS[f](q)
-                labels[f] = name if name is not None else GROUP_NONE_LABELS[f]
+                labels[f] = name if name is not None else _t(GROUP_NONE_LABELS[f])
                 order = GROUP_ORDER_KEYS[f](q)
                 sort_components.append((1, ()) if order is None else (0, order))
             block = {

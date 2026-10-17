@@ -18,9 +18,12 @@
 {% include 'partials/tag_editor_js.html' %}
 
 // ==================== TOAST (idempotent — only define if missing) ====================
+// A message that is exactly a catalogue key is shown translated (OQB.t passes
+// anything else through), so fixed server messages localise too.
 if (typeof window.showToast !== 'function') {
     window.showToast = function(message, type) {
         type = type || 'success';
+        message = OQB.t(message);
         const id = 'toast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const bgClass = type === 'success' ? 'bg-success'
             : type === 'danger' ? 'bg-danger'
@@ -28,7 +31,7 @@ if (typeof window.showToast !== 'function') {
             : 'bg-info';
         const html = `<div id="${id}" class="toast align-items-center text-white ${bgClass} border-0" role="alert">
             <div class="d-flex"><div class="toast-body">${message}</div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`;
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="${OQB.t('Close')}"></button></div></div>`;
         const container = document.getElementById('toastContainer');
         if (!container) { console.log('[toast]', message); return; }
         container.insertAdjacentHTML('beforeend', html);
@@ -762,11 +765,11 @@ function onEditVerifiedToggle() {
         const notOk = editQuestionData._assetNotOk || 0;
         const total = editQuestionData._assetTotal || 0;
         if (total === 0) {
-            if (!confirm('This question has no assets. Mark it verified anyway?')) {
+            if (!confirm(OQB.t('This question has no assets. Mark it verified anyway?'))) {
                 toggle.checked = false; return;
             }
         } else if (notOk > 0) {
-            if (!confirm(`${notOk} of ${total} asset(s) are not marked checked-OK. Mark the question verified anyway?`)) {
+            if (!confirm(OQB.t('{notOk} of {total} asset(s) are not marked checked-OK. Mark the question verified anyway?', {notOk, total}))) {
                 toggle.checked = false; return;
             }
         }
@@ -1344,7 +1347,7 @@ function setSlotCheckState(questionId, lang, atype, state) {
         if (note === null) return; // cancelled
         note = note.trim();
     } else if (state === 'clear') {
-        if (!confirm(`Clear the proofread status for ${atype} (${lang})?`)) return;
+        if (!confirm(OQB.t('Clear the proofread status for {slot}?', {slot: `${atype} (${lang})`}))) return;
     }
     const url = `{{ url_for('admin.set_asset_check_state', question_id=0) }}`.replace('/questions/0/', `/questions/${questionId}/`);
     fetch(url, {
@@ -1790,7 +1793,8 @@ function uploadAssetFiles(questionId, lang, atype, files) {
 }
 
 function deleteAssetPart(questionId, assetId, filename) {
-    if (!confirm(`Delete asset "${filename || 'this part'}"?\n\nThis will remove the file from BOTH the database AND the disk.`)) return;
+    if (!confirm(OQB.t('Delete asset "{name}"?', {name: filename || OQB.t('this part')}) + '\n\n'
+                 + OQB.t('This will remove the file from BOTH the database AND the disk.'))) return;
     fetch(`{{ url_for('admin.delete_question_asset', question_id=0, asset_id=0) }}`.replace('/0/assets/0', `/${questionId}/assets/${assetId}`), {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
@@ -1984,7 +1988,7 @@ function doSaveMdEditorModal(force) {
         .then(({status, data}) => {
             saveBtn.disabled = false;
             if (status === 409 && !s.isCreate) {
-                if (confirm('File changed on disk since you opened it. Overwrite with your changes?')) {
+                if (confirm(OQB.t('File changed on disk since you opened it. Overwrite with your changes?'))) {
                     doSaveMdEditorModal(true);
                 } else {
                     statusEl.textContent = 'Save cancelled (file changed)';
@@ -2033,7 +2037,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!modalEl) return;
     modalEl.addEventListener('hide.bs.modal', function(e) {
         if (_mdEditorModalIsDirty()) {
-            if (!confirm('Discard unsaved changes?')) {
+            if (!confirm(OQB.t('Discard unsaved changes?'))) {
                 e.preventDefault();
             }
         }

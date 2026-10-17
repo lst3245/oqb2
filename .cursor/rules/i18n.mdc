@@ -1,0 +1,32 @@
+---
+description: Bilingual UI (English / HK Traditional Chinese) - t() / OQB.t() catalogue, language cookies, taxonomy name_zh display and matching, document heading language
+globs: templates/**,static/js/**,app/i18n.py,app/translations/**,app/admin.py,app/auth.py,app/dashboard.py,app/generator.py,app/utils.py,app/batch_edit.py,app/ai_prompts.py,app/ai_tools.py,app/subject_ai_service.py,tests/test_i18n.py
+alwaysApply: false
+---
+
+# Bilingual UI and taxonomy (bootloader — spec in `docs/modules/i18n.md`, ADR-017)
+
+UI language (`oqb_lang` cookie, en | zh) and taxonomy display (`oqb_tax_lang`, en | zh | both) are per-device cookies set only by `OQB.setLang`. **Neither is the paper version** (`EN/CH/BI/ENO/CHO`); never derive one from the other. The only bridge is Generate `heading_lang=auto`.
+
+## UI text
+- Wrap new teacher-facing text: Jinja `{{ t('English text', n=x) }}`, Python `_t('…')` (`from app.i18n import t as _t` — `utils`, `generator`, `admin`, `auth` use `t` as a loop variable), JS `OQB.t('…', {n: x})`.
+- **One plain string literal per call**, variable parts as `{placeholder}` params. No concatenated fragments, no template literals, no adjacent literals inside `_t(...)` — the coverage test only sees single literals, and word order differs in Chinese.
+- Add the key (exact English text) to `app/translations/zh_Hant.json` in the same edit, in HK Traditional Chinese using `docs/reference/glossary-zh.md`. Keep every placeholder. Changing the English text orphans the old key — update both.
+- Strings that only arrive at runtime (server `message` shown by `showToast`, `validate_username` errors) need a catalogue key too; `showToast` already calls `OQB.t`.
+- Stay English: logs, SSE progress lines, AI prompts, `flash(str(e))`, CSV headers, version codes, QIDs.
+- A standalone page that does not extend `base.html` must load `/i18n/zh.js` (UI zh only) and `static/js/i18n.js` in `<head>` itself, like `viewer.html` / `markup.html`.
+
+## Taxonomy names (`name` = English, `name_zh` optional)
+- Display: `i18n.display_name(node)` / Jinja `tax_name(node)` / JS `OQB.taxName(node)` — never `node.name` in teacher-facing text. Search boxes use `OQB.taxSearchKey(node)`.
+- Match (CSV import, Auto Tag, anything parsing a typed name): `i18n.build_name_index(nodes)` + `lookup_name(index, raw)`. Never compare against a display string. English wins a collision.
+- Store ids. The tag-correction log, Auto Tag `display` and `subject_ai_service` labels keep the English `name`. API nodes carry `name` (display), `name_en`, `name_zh`; post `name_en` or the id, never `name`.
+- `name_zh` is a restore-point field: any writer captures before mutating (`subject-snapshots.mdc`). Edit routes validate before the capture (`_taxonomy_name_updates`).
+- CSV imports never rename the English name; a blank `*_name_zh` cell leaves the Chinese alone.
+- `.tax-name-zh` spans: no whitespace inside (`:empty` placeholder).
+
+## Documents
+- Resolve once per job: `doc_lang(heading_lang, version_priority)` → `label_opts['lang']`; pass `lang` / `label_lang` down. Print names with `doc_name(node, lang)` and fixed words with `doc_label(key, lang)` (add new words to `DOC_LABELS`). Threads have no cookie: never call `t()` / `display_name()` without an explicit mode there.
+- Section keys are ids (`_get_section_key`). OQB styles carry the East Asian font (`_EAST_ASIAN_FONT`).
+
+## Checks
+`python -m unittest tests.test_i18n tests.test_generator_labels tests.test_subject_snapshot` (pure, no DB).

@@ -186,6 +186,7 @@ The page shows **one subject at a time**. Use the subject dropdown (top right) t
 
 - **Add**: *Add Topic* at the top, *+ Subtopic* on a topic row.
 - **Rename**: double-click a name (or click the pencil), type, then press Enter or click away. Esc cancels.
+- **Chinese name**: the grey text after the name (`+ 中文名稱` when there is none). Double-click it or press the **中** button, type the Chinese name, then Enter. Saving it blank removes the Chinese name. The Add dialogs also have an optional **Chinese name** field. See *Chinese names* below.
 - **Reorder**: drag the grip handle on the left of a row, or use the up/down arrows. Subtopics move within their own topic. The order is saved immediately and is the order used by the dashboard sort, generated section headings and topic numbering.
 - **Hide / unhide**: the eye button. A hidden topic or subtopic stays on this page (dimmed, with a *Hidden* badge) and in every tag editor, but is left out of the dashboard filter (unless the filter's eye switch is on), out of generated topic numbering, and out of the Auto Tag hints. Hiding a topic also hides its subtopics in those places without changing their own setting, so unhiding the topic brings back exactly what was there before. Useful for textbook-chapter subtopics or retired topics that old questions still use.
 - **Delete**: the bin button. Deleting a topic removes its subtopics and un-tags linked questions.
@@ -199,13 +200,30 @@ Chapters represent **textbook organisation** (separate from the topic/subtopic s
 - **Chapter** → textbook chapter
 - **Subchapter** → section within a chapter
 
-Same one-subject view, drag / arrows, double-click rename and hide / unhide as topics. Chapters are never numbered, so there is no preview switch.
+Same one-subject view, drag / arrows, double-click rename, Chinese name and hide / unhide as topics. Chapters are never numbered, so there is no preview switch.
 
 Questions can be linked to both a topic AND a chapter — they serve different filtering purposes.
 
 **Undo**: every add, rename, delete, hide/unhide and reorder on these pages first saves a **restore point** for the subject. If an edit goes wrong, click **Restore Points** in the page header (or `Admin → Restore Points`) and restore the point taken before it. See [Restore Points](#restore-points-admin--restore-points-per-subject).
 
-**Subjects** (`/admin/subjects`, Super Admin): add/rename subjects. Tick **Split questions into parts by default (PDF import)** so the PDF import wizard starts with that checkbox on for papers of this subject.
+**Subjects** (`/admin/subjects`, Super Admin): add/rename subjects and give each an optional **Chinese name**. Tick **Split questions into parts by default (PDF import)** so the PDF import wizard starts with that checkbox on for papers of this subject.
+
+### Chinese names
+
+Every subject, topic, subtopic, chapter and subchapter has an **English name** (required) and an optional **Chinese name**. Type each into its own field. Do not put both into the English name (`化學反應 Chemical Reactions`): teachers choose under the globe menu whether they see English, 中文 or both, and OQB joins the two names itself.
+
+- The English name is what OQB uses to sort and to match names in CSV imports and Auto Tag. A topic without a Chinese name is shown in English everywhere, including Chinese mode.
+- Generated papers print names in the language chosen under Generate → **Heading language** (by default it follows the first version: EN → English, CH → 中文, BI → both).
+- Auto Tag sees both names and still answers with the English one. Imports and Auto Tag accept either name.
+- Changing a Chinese name saves a restore point like any other topic edit.
+
+**Cleaning up a subject whose names hold both languages (e.g. CHEM):**
+
+1. Open Admin → Topics, pick the subject, and for each topic / subtopic double-click the name and leave only the English, then double-click the grey `+ 中文名稱` text and type the Chinese. Repeat on Admin → Chapters. (Or export the Topics CSV, put the Chinese into `topic_name_zh` / `subtopic_name_zh`, and fix the English in the UI — a CSV import never renames an English name.)
+2. Open **Admin → AI Tagging Tuning** for the subject and click the bin button on the **Teacher corrections report** card: the recorded corrections quote the combined names, which no longer exist.
+3. Run **Suggest tags** (Edit → Tags) on a few questions of the subject to check that Auto Tag still picks the right topics.
+
+Every rename saves a restore point, so a mistake can be undone from Restore Points.
 
 ---
 
@@ -523,7 +541,7 @@ Run the tag editor in Admin → Questions to assign topics, levels, etc. to newl
 
 Navigate to **Admin → Export / Import**.
 
-All exports are CSV. Imports are **idempotent** — safe to re-run.
+All exports are CSV, saved with a UTF-8 marker so Excel shows Chinese names correctly (keep **CSV UTF-8** when you save in Excel). Imports are **idempotent** — safe to re-run. Topic and chapter names in any import may be written in English, in Chinese, or as `English 中文`.
 
 ### Question Tags
 
@@ -539,14 +557,14 @@ qid, subject, major_topic, major_subtopic, minor_topics, subtopics, chapter, sub
 
 **Export** produces one row per subtopic (or one row for a topic without subtopics):
 ```
-subject_id, topic_name, topic_hidden, subtopic_name, subtopic_hidden
+subject_id, topic_name, topic_name_zh, topic_hidden, subtopic_name, subtopic_name_zh, subtopic_hidden
 ```
-`topic_hidden` / `subtopic_hidden` are `1` (hidden) or `0`.
+`topic_hidden` / `subtopic_hidden` are `1` (hidden) or `0`. `*_name_zh` hold the Chinese names (blank when none).
 
-**Import** creates topics and subtopics that don't already exist (by name match within subject), sets the order from the row order, and updates the hidden flags where the cell is `0` or `1` (a blank cell or a missing column leaves the flag as it is, so older CSVs still import).
+**Import** creates topics and subtopics that don't already exist (by name match within subject, in either language), sets the order from the row order, and updates the hidden flags where the cell is `0` or `1` and the Chinese name where the `*_name_zh` cell is filled. A blank cell or a missing column leaves the value as it is, so older CSVs still import. An import never changes an existing English name — rename those on the Topics page. A row whose English name is unknown but whose Chinese name matches an existing topic updates that topic and is listed in the warnings.
 
 ### Chapters / Subchapters
-Same format as Topics, but for the chapter system: `subject_id, chapter_name, chapter_hidden, subchapter_name, subchapter_hidden`.
+Same format as Topics, but for the chapter system: `subject_id, chapter_name, chapter_name_zh, chapter_hidden, subchapter_name, subchapter_name_zh, subchapter_hidden`.
 
 **Workflow tip**: Export → edit in Excel → import to bulk-create or update topics/chapters.
 

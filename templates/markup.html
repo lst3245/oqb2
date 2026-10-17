@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ OQB_HTML_LANG }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -9,7 +9,11 @@
     <meta name="apple-mobile-web-app-title" content="Markup">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='markup/icon.svg') }}">
-    <title>Markup - OQB</title>
+    <title>{{ t('Markup - OQB') }}</title>
+    {% if OQB_UI_LANG == 'zh' %}
+    <script src="{{ url_for('i18n.catalogue_js', lang='zh') }}?v={{ OQB_I18N_VERSION }}"></script>
+    {% endif %}
+    <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <script src="https://unpkg.com/konva@9/konva.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>

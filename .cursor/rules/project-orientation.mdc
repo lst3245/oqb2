@@ -30,6 +30,7 @@ Then code. Do not scan the whole repo when the orientation files already say whe
 - **Versions come from `app/utils.VERSIONS`** (templates: `OQB_VERSIONS`). Never hardcode the list.
 - **QIDs, `Subject.id`, asset filenames are stable identifiers** mirrored on disk. Rename only through the app's rename flows.
 - **Dashboard Selection is independent of Filter** (ADR-008).
+- **UI language is not the paper version** (ADR-017). Teacher-facing text goes through `t()` / `OQB.t()` + `app/translations/zh_Hant.json`; taxonomy `name` is English and `name_zh` optional — display via `i18n.display_name`, match via `i18n.build_name_index`, store ids. See `i18n.mdc`.
 - **Word COM only through `app/word_com.py`** (global lock, single WINWORD per session).
 - **Restore points before tag / taxonomy writes** (ADR-013). Any code that changes a subject's topics / subtopics / chapters / subchapters or a question's tags calls `subject_snapshot.capture*` *before* mutating. See `subject-snapshots.mdc` / `docs/modules/subject-snapshots.md`.
 

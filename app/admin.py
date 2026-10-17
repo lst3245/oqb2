@@ -24,6 +24,7 @@ from app import md_render
 from app import storage
 from app import subject_snapshot
 from app import marks_spacing
+from app.i18n import display_name, build_name_index, lookup_name, t as _t
 from sqlalchemy.orm import configure_mappers, selectinload
 from app.batch_edit import (
     BatchEditError, apply_resolved, parse_batch_form,
@@ -62,6 +63,54 @@ def index():
 # immutable once created — only the display name can be edited.
 
 _SUBJECT_ID_RE = re.compile(r'^[A-Z0-9]{1,10}$')
+
+
+def _form_name_zh():
+    """Optional Chinese name from the form (`name_zh`); blank -> None."""
+    return (request.form.get('name_zh') or '').strip() or None
+
+
+def _taxonomy_name_updates():
+    """``({'name'?, 'name_zh'?}, error)`` from a taxonomy edit form. Either
+    key may be absent (inline rename of one language); a present ``name``
+    must not be blank, and at least one key is required."""
+    updates = {}
+    if 'name' in request.form:
+        name = (request.form.get('name') or '').strip()
+        if not name:
+            return None, 'Name is required'
+        updates['name'] = name
+    if 'name_zh' in request.form:
+        updates['name_zh'] = _form_name_zh()
+    if not updates:
+        return None, 'Name is required'
+    return updates, None
+
+
+def _taxonomy_json(row, **extra):
+    return dict({'id': row.id, 'name': row.name, 'name_zh': row.name_zh}, **extra)
+
+
+def _csv_download(text, filename):
+    """CSV attachment with a UTF-8 BOM so Excel shows Chinese names; the
+    importers decode ``utf-8-sig`` and accept files with or without it."""
+    response = make_response('\ufeff' + text)
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    return response
+
+
+def _csv_match_node(index, name, name_zh, row_num, label, warnings):
+    """Existing taxonomy node for a topic / chapter CSV row: ``name`` in
+    either language, else the row's ``*_name_zh`` cell. The English name of
+    a node matched only by its Chinese name is never overwritten."""
+    node = lookup_name(index, name)
+    if node is None and name_zh:
+        node = lookup_name(index, name_zh)
+        if node is not None:
+            warnings.append(f'Row {row_num}: {label} "{name}" matched existing '
+                            f'"{node.name}" by its Chinese name; English name kept.')
+    return node
 
 
 def _saved_filter_subject_count(subject_id):
@@ -132,13 +181,14 @@ def add_subject():
     if Subject.query.get(subject_id):
         return jsonify({'error': f'Subject {subject_id} already exists'}), 400
 
-    subject = Subject(id=subject_id, name=name, split_parts_default=False)
+    subject = Subject(id=subject_id, name=name, name_zh=_form_name_zh(),
+                      split_parts_default=False)
     if request.form.get('split_parts_default') in ('on', '1', 'true'):
         subject.split_parts_default = True
     db.session.add(subject)
     db.session.commit()
 
-    return jsonify({'id': subject.id, 'name': subject.name,
+    return jsonify({'id': subject.id, 'name': subject.name, 'name_zh': subject.name_zh,
                     'split_parts_default': bool(subject.split_parts_default)})
 
 
@@ -154,11 +204,13 @@ def edit_subject(subject_id):
         return jsonify({'error': 'Name is required'}), 400
 
     subject.name = name
+    if 'name_zh' in request.form:
+        subject.name_zh = _form_name_zh()
     if 'split_parts_default' in request.form:
         subject.split_parts_default = request.form.get('split_parts_default') in ('on', '1', 'true')
     db.session.commit()
 
-    return jsonify({'id': subject.id, 'name': subject.name,
+    return jsonify({'id': subject.id, 'name': subject.name, 'name_zh': subject.name_zh,
                     'split_parts_default': bool(subject.split_parts_default)})
 
 
@@ -382,11 +434,12 @@ def add_topic():
     # Get max sort_order for this subject
     max_order = db.session.query(db.func.max(Topic.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
     
-    topic = Topic(subject_id=subject_id, name=name, sort_order=max_order + 1)
+    topic = Topic(subject_id=subject_id, name=name, name_zh=_form_name_zh(),
+                  sort_order=max_order + 1)
     db.session.add(topic)
     db.session.commit()
     
-    return jsonify({'id': topic.id, 'name': topic.name, 'subject_id': topic.subject_id})
+    return jsonify(_taxonomy_json(topic, subject_id=topic.subject_id))
 
 @admin_bp.route('/topics/<int:topic_id>/edit', methods=['POST'])
 @login_required
@@ -395,18 +448,18 @@ def edit_topic(topic_id):
     """Edit a topic"""
     topic = Topic.query.get_or_404(topic_id)
     _require_subject_admin(topic.subject_id)
-    name = (request.form.get('name') or '').strip()
-    
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
+    updates, error = _taxonomy_name_updates()
+    if error:
+        return jsonify({'error': error}), 400
     
     subject_snapshot.capture(topic.subject_id, 'topic-edit')
-    topic.name = name
+    for field, value in updates.items():
+        setattr(topic, field, value)
     if 'hidden' in request.form:
         topic.hidden = request.form.get('hidden') == '1'
     db.session.commit()
     
-    return jsonify({'id': topic.id, 'name': topic.name, 'hidden': topic.hidden})
+    return jsonify(_taxonomy_json(topic, hidden=topic.hidden))
 
 @admin_bp.route('/topics/<int:topic_id>/toggle-hidden', methods=['POST'])
 @login_required
@@ -449,11 +502,12 @@ def add_subtopic():
     # Get max sort_order for this topic
     max_order = db.session.query(db.func.max(Subtopic.sort_order)).filter_by(topic_id=int(topic_id)).scalar() or 0
     
-    subtopic = Subtopic(topic_id=int(topic_id), name=name, hidden=hidden, sort_order=max_order + 1)
+    subtopic = Subtopic(topic_id=int(topic_id), name=name, name_zh=_form_name_zh(),
+                        hidden=hidden, sort_order=max_order + 1)
     db.session.add(subtopic)
     db.session.commit()
     
-    return jsonify({'id': subtopic.id, 'name': subtopic.name, 'topic_id': subtopic.topic_id, 'hidden': subtopic.hidden})
+    return jsonify(_taxonomy_json(subtopic, topic_id=subtopic.topic_id, hidden=subtopic.hidden))
 
 @admin_bp.route('/subtopics/<int:subtopic_id>/edit', methods=['POST'])
 @login_required
@@ -462,13 +516,13 @@ def edit_subtopic(subtopic_id):
     """Edit a subtopic"""
     subtopic = Subtopic.query.get_or_404(subtopic_id)
     _require_subject_admin(subtopic.topic.subject_id)
-    name = (request.form.get('name') or '').strip()
-    
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
+    updates, error = _taxonomy_name_updates()
+    if error:
+        return jsonify({'error': error}), 400
     
     subject_snapshot.capture(subtopic.topic.subject_id, 'topic-edit')
-    subtopic.name = name
+    for field, value in updates.items():
+        setattr(subtopic, field, value)
     
     # Handle hidden flag
     if 'hidden' in request.form:
@@ -476,7 +530,7 @@ def edit_subtopic(subtopic_id):
     
     db.session.commit()
     
-    return jsonify({'id': subtopic.id, 'name': subtopic.name, 'hidden': subtopic.hidden})
+    return jsonify(_taxonomy_json(subtopic, hidden=subtopic.hidden))
 
 @admin_bp.route('/subtopics/<int:subtopic_id>/toggle-hidden', methods=['POST'])
 @login_required
@@ -585,11 +639,12 @@ def add_chapter():
     # Get max sort_order for this subject
     max_order = db.session.query(db.func.max(Chapter.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
 
-    chapter = Chapter(subject_id=subject_id, name=name, sort_order=max_order + 1)
+    chapter = Chapter(subject_id=subject_id, name=name, name_zh=_form_name_zh(),
+                      sort_order=max_order + 1)
     db.session.add(chapter)
     db.session.commit()
 
-    return jsonify({'id': chapter.id, 'name': chapter.name, 'subject_id': chapter.subject_id})
+    return jsonify(_taxonomy_json(chapter, subject_id=chapter.subject_id))
 
 @admin_bp.route('/chapters/<int:chapter_id>/edit', methods=['POST'])
 @login_required
@@ -598,18 +653,18 @@ def edit_chapter(chapter_id):
     """Edit a chapter"""
     chapter = Chapter.query.get_or_404(chapter_id)
     _require_subject_admin(chapter.subject_id)
-    name = (request.form.get('name') or '').strip()
-    
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
+    updates, error = _taxonomy_name_updates()
+    if error:
+        return jsonify({'error': error}), 400
     
     subject_snapshot.capture(chapter.subject_id, 'chapter-edit')
-    chapter.name = name
+    for field, value in updates.items():
+        setattr(chapter, field, value)
     if 'hidden' in request.form:
         chapter.hidden = request.form.get('hidden') == '1'
     db.session.commit()
     
-    return jsonify({'id': chapter.id, 'name': chapter.name, 'hidden': chapter.hidden})
+    return jsonify(_taxonomy_json(chapter, hidden=chapter.hidden))
 
 @admin_bp.route('/chapters/<int:chapter_id>/toggle-hidden', methods=['POST'])
 @login_required
@@ -656,11 +711,13 @@ def add_subchapter():
     # Get max sort_order for this chapter
     max_order = db.session.query(db.func.max(Subchapter.sort_order)).filter_by(chapter_id=int(chapter_id)).scalar() or 0
 
-    subchapter = Subchapter(chapter_id=int(chapter_id), name=name, hidden=hidden, sort_order=max_order + 1)
+    subchapter = Subchapter(chapter_id=int(chapter_id), name=name, name_zh=_form_name_zh(),
+                            hidden=hidden, sort_order=max_order + 1)
     db.session.add(subchapter)
     db.session.commit()
 
-    return jsonify({'id': subchapter.id, 'name': subchapter.name, 'chapter_id': subchapter.chapter_id, 'hidden': subchapter.hidden})
+    return jsonify(_taxonomy_json(subchapter, chapter_id=subchapter.chapter_id,
+                                  hidden=subchapter.hidden))
 
 @admin_bp.route('/subchapters/<int:subchapter_id>/edit', methods=['POST'])
 @login_required
@@ -669,13 +726,13 @@ def edit_subchapter(subchapter_id):
     """Edit a subchapter"""
     subchapter = Subchapter.query.get_or_404(subchapter_id)
     _require_subject_admin(subchapter.chapter.subject_id)
-    name = (request.form.get('name') or '').strip()
-    
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
+    updates, error = _taxonomy_name_updates()
+    if error:
+        return jsonify({'error': error}), 400
     
     subject_snapshot.capture(subchapter.chapter.subject_id, 'chapter-edit')
-    subchapter.name = name
+    for field, value in updates.items():
+        setattr(subchapter, field, value)
     
     # Handle hidden flag
     if 'hidden' in request.form:
@@ -683,7 +740,7 @@ def edit_subchapter(subchapter_id):
     
     db.session.commit()
     
-    return jsonify({'id': subchapter.id, 'name': subchapter.name, 'hidden': subchapter.hidden})
+    return jsonify(_taxonomy_json(subchapter, hidden=subchapter.hidden))
 
 @admin_bp.route('/subchapters/<int:subchapter_id>/toggle-hidden', methods=['POST'])
 @login_required
@@ -1348,22 +1405,22 @@ def _taxonomy_maps(parsed):
             topic_ids.add(parsed['major_topic_id'])
         if topic_ids:
             for row in Topic.query.filter(Topic.id.in_(topic_ids)):
-                topics[row.id] = row.name
+                topics[row.id] = display_name(row)
         sub_ids = set(parsed['subtopic_ids'])
         if parsed['major_subtopic_id'] is not None:
             sub_ids.add(parsed['major_subtopic_id'])
         if sub_ids:
             for row in Subtopic.query.filter(Subtopic.id.in_(sub_ids)):
-                subtopics[row.id] = {'name': row.name, 'topic_id': row.topic_id}
+                subtopics[row.id] = {'name': display_name(row), 'topic_id': row.topic_id}
     if flags['chapters']:
         if parsed['chapter_id'] is not None:
             row = db.session.get(Chapter, parsed['chapter_id'])
             if row is not None:
-                chapters[row.id] = row.name
+                chapters[row.id] = display_name(row)
         if parsed['subchapter_id'] is not None:
             row = db.session.get(Subchapter, parsed['subchapter_id'])
             if row is not None:
-                subchapters[row.id] = {'name': row.name, 'chapter_id': row.chapter_id}
+                subchapters[row.id] = {'name': display_name(row), 'chapter_id': row.chapter_id}
     return topics, subtopics, chapters, subchapters
 
 
@@ -2447,21 +2504,21 @@ def _descendant_tag_union(question):
     for n in nodes:
         if n.major_topic and n.major_topic_id not in seen['t']:
             seen['t'].add(n.major_topic_id)
-            topics.append(n.major_topic.name)
+            topics.append(display_name(n.major_topic))
         for t in n.minor_topics:
             if t.id not in seen['m']:
                 seen['m'].add(t.id)
-                minors.append(t.name)
+                minors.append(display_name(t))
         if n.major_subtopic and n.major_subtopic_id not in seen['s']:
             seen['s'].add(n.major_subtopic_id)
-            subs.append(n.major_subtopic.name)
+            subs.append(display_name(n.major_subtopic))
         for s in n.subtopics:
             if s.id not in seen['s']:
                 seen['s'].add(s.id)
-                subs.append(s.name)
+                subs.append(display_name(s))
         if n.chapter and n.chapter_id not in seen['c']:
             seen['c'].add(n.chapter_id)
-            chapters.append(n.chapter.name)
+            chapters.append(display_name(n.chapter))
         if n.level is not None and n.level not in seen['l']:
             seen['l'].add(n.level)
             levels.append(n.level)
@@ -3591,7 +3648,7 @@ def edit_md_asset_page(question_id, asset_id):
 
     asset = QuestionAsset.query.filter_by(id=asset_id, question_id=question_id).first_or_404()
     if asset.file_format != 'MD':
-        flash('That asset is not a Markdown file.', 'warning')
+        flash(_t('That asset is not a Markdown file.'), 'warning')
         return redirect(url_for('admin.questions_page'))
 
     return render_template(
@@ -4152,7 +4209,7 @@ def export_question_tags():
         try:
             db_ids = [int(s) for s in raw_qids.split(',') if s.strip()]
         except ValueError:
-            flash('Invalid question_ids parameter.', 'danger')
+            flash(_t('Invalid question_ids parameter.'), 'danger')
             return redirect(url_for('admin.export_import'))
 
         qs = Question.query.filter(Question.id.in_(db_ids)).all()
@@ -4165,11 +4222,11 @@ def export_question_tags():
         # Subject-based export (original behaviour)
         subject_id = request.args.get('subject_id')
         if not subject_id:
-            flash('Please select a subject.', 'warning')
+            flash(_t('Please select a subject.'), 'warning')
             return redirect(url_for('admin.export_import'))
 
         if subject_id not in admin_subject_ids:
-            flash('Access denied for this subject.', 'danger')
+            flash(_t('Access denied for this subject.'), 'danger')
             return redirect(url_for('admin.export_import'))
 
         questions = sorted(
@@ -4208,10 +4265,7 @@ def export_question_tags():
             q.comment or '',
         ])
 
-    response = make_response(output.getvalue())
-    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
-    return response
+    return _csv_download(output.getvalue(), filename)
 
 
 # ---------- Import Question Tags ----------
@@ -4223,7 +4277,7 @@ def import_question_tags():
     """Import question tags from CSV"""
     file = request.files.get('file')
     if not file or not file.filename.endswith('.csv'):
-        flash('Please upload a valid CSV file.', 'danger')
+        flash(_t('Please upload a valid CSV file.'), 'danger')
         return redirect(url_for('admin.export_import'))
 
     # Which fields did the user choose to import?
@@ -4245,7 +4299,7 @@ def import_question_tags():
         required_cols = {'qid'}
         csv_columns = set(reader.fieldnames or [])
         if not required_cols.issubset(csv_columns):
-            flash('CSV must contain at least a "qid" column.', 'danger')
+            flash(_t('CSV must contain at least a "qid" column.'), 'danger')
             return redirect(url_for('admin.export_import'))
 
         # Only import fields that are both selected AND present in the CSV
@@ -4266,6 +4320,27 @@ def import_question_tags():
                            'correct_percentage', 'marks'}
         wants_snapshot = bool(fields_to_import & snapshot_fields)
         snapshotted = set()
+
+        # Name indexes (English, Chinese or "English 中文" all match), built
+        # once per scope; this import never creates taxonomy rows.
+        name_indexes = {}
+
+        def _index(kind, scope_id):
+            key = (kind, scope_id)
+            if key not in name_indexes:
+                if kind == 'topic':
+                    rows = Topic.query.filter_by(subject_id=scope_id).all()
+                elif kind == 'subtopic_of':
+                    rows = Subtopic.query.filter_by(topic_id=scope_id).all()
+                elif kind == 'subtopic':
+                    rows = (Subtopic.query.join(Topic)
+                            .filter(Topic.subject_id == scope_id).all())
+                elif kind == 'chapter':
+                    rows = Chapter.query.filter_by(subject_id=scope_id).all()
+                else:
+                    rows = Subchapter.query.filter_by(chapter_id=scope_id).all()
+                name_indexes[key] = build_name_index(rows)
+            return name_indexes[key]
 
         for row_num, row in enumerate(reader, start=2):
             qid = row.get('qid', '').strip()
@@ -4295,7 +4370,7 @@ def import_question_tags():
             if 'major_topic' in fields_to_import:
                 major_topic_name = row.get('major_topic', '').strip()
                 if major_topic_name:
-                    topic = Topic.query.filter_by(subject_id=subj_id, name=major_topic_name).first()
+                    topic = lookup_name(_index('topic', subj_id), major_topic_name)
                     if topic:
                         question.major_topic_id = topic.id
                     else:
@@ -4308,7 +4383,8 @@ def import_question_tags():
             if 'major_subtopic' in fields_to_import:
                 major_subtopic_name = row.get('major_subtopic', '').strip()
                 if major_subtopic_name and question.major_topic_id:
-                    subtopic = Subtopic.query.filter_by(topic_id=question.major_topic_id, name=major_subtopic_name).first()
+                    subtopic = lookup_name(_index('subtopic_of', question.major_topic_id),
+                                           major_subtopic_name)
                     if subtopic:
                         question.major_subtopic_id = subtopic.id
                     else:
@@ -4323,7 +4399,7 @@ def import_question_tags():
                 question.minor_topics.clear()
                 if minor_topics_str:
                     for tname in [n.strip() for n in minor_topics_str.split(';') if n.strip()]:
-                        topic = Topic.query.filter_by(subject_id=subj_id, name=tname).first()
+                        topic = lookup_name(_index('topic', subj_id), tname)
                         if topic:
                             question.minor_topics.append(topic)
                         else:
@@ -4336,9 +4412,7 @@ def import_question_tags():
                 if subtopics_str:
                     for sname in [n.strip() for n in subtopics_str.split(';') if n.strip()]:
                         # Search across all topics in the subject
-                        subtopic = Subtopic.query.join(Topic).filter(
-                            Topic.subject_id == subj_id, Subtopic.name == sname
-                        ).first()
+                        subtopic = lookup_name(_index('subtopic', subj_id), sname)
                         if subtopic:
                             question.subtopics.append(subtopic)
                         else:
@@ -4348,7 +4422,7 @@ def import_question_tags():
             if 'chapter' in fields_to_import:
                 chapter_name = row.get('chapter', '').strip()
                 if chapter_name:
-                    chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
+                    chapter = lookup_name(_index('chapter', subj_id), chapter_name)
                     if chapter:
                         question.chapter_id = chapter.id
                     else:
@@ -4361,7 +4435,8 @@ def import_question_tags():
             if 'subchapter' in fields_to_import:
                 subchapter_name = row.get('subchapter', '').strip()
                 if subchapter_name and question.chapter_id:
-                    subchapter = Subchapter.query.filter_by(chapter_id=question.chapter_id, name=subchapter_name).first()
+                    subchapter = lookup_name(_index('subchapter_of', question.chapter_id),
+                                             subchapter_name)
                     if subchapter:
                         question.subchapter_id = subchapter.id
                     else:
@@ -4421,19 +4496,20 @@ def import_question_tags():
         db.session.commit()
 
         imported_fields_str = ', '.join(sorted(fields_to_import)) if fields_to_import else 'none'
-        msg = f'Import complete: {updated} question(s) updated, {skipped} skipped. Fields imported: {imported_fields_str}.'
+        msg = _t('Import complete: {updated} question(s) updated, {skipped} skipped. Fields imported: {fields}.',
+                 updated=updated, skipped=skipped, fields=imported_fields_str)
         if warnings:
-            msg += f' {len(warnings)} warning(s).'
+            msg += ' ' + _t('{n} warning(s).', n=len(warnings))
         flash(msg, 'success' if updated > 0 else 'warning')
 
         # Store warnings in session for display
         if warnings:
             # Limit to first 50 warnings
-            flash('Warnings:\n' + '\n'.join(warnings[:50]), 'warning')
+            flash(_t('Warnings:') + '\n' + '\n'.join(warnings[:50]), 'warning')
 
     except Exception as e:
         db.session.rollback()
-        flash(f'Import failed: {str(e)}', 'danger')
+        flash(_t('Import failed: {error}', error=str(e)), 'danger')
 
     return redirect(url_for('admin.export_import'))
 
@@ -4447,20 +4523,21 @@ def export_topics():
     """Export topics and subtopics as CSV"""
     subject_id = request.args.get('subject_id')
     if not subject_id:
-        flash('Please select a subject.', 'warning')
+        flash(_t('Please select a subject.'), 'warning')
         return redirect(url_for('admin.export_import'))
 
     subjects = get_user_admin_subjects()
     subject_ids = [s.id for s in subjects]
     if subject_id not in subject_ids:
-        flash('Access denied for this subject.', 'danger')
+        flash(_t('Access denied for this subject.'), 'danger')
         return redirect(url_for('admin.export_import'))
 
     topics = Topic.query.filter_by(subject_id=subject_id).order_by(Topic.sort_order).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['subject_id', 'topic_name', 'topic_hidden', 'subtopic_name', 'subtopic_hidden'])
+    writer.writerow(['subject_id', 'topic_name', 'topic_name_zh', 'topic_hidden',
+                     'subtopic_name', 'subtopic_name_zh', 'subtopic_hidden'])
 
     for topic in topics:
         topic_hidden = 1 if topic.hidden else 0
@@ -4468,16 +4545,14 @@ def export_topics():
         if subtopics:
             for st in subtopics:
                 writer.writerow([
-                    subject_id, topic.name, topic_hidden,
-                    st.name, 1 if st.hidden else 0
+                    subject_id, topic.name, topic.name_zh or '', topic_hidden,
+                    st.name, st.name_zh or '', 1 if st.hidden else 0
                 ])
         else:
-            writer.writerow([subject_id, topic.name, topic_hidden, '', ''])
+            writer.writerow([subject_id, topic.name, topic.name_zh or '', topic_hidden,
+                             '', '', ''])
 
-    response = make_response(output.getvalue())
-    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-    response.headers['Content-Disposition'] = f'attachment; filename=topics_{subject_id}.csv'
-    return response
+    return _csv_download(output.getvalue(), f'topics_{subject_id}.csv')
 
 
 # ---------- Import Topics/Subtopics ----------
@@ -4489,7 +4564,7 @@ def import_topics():
     """Import topics and subtopics from CSV"""
     file = request.files.get('file')
     if not file or not file.filename.endswith('.csv'):
-        flash('Please upload a valid CSV file.', 'danger')
+        flash(_t('Please upload a valid CSV file.'), 'danger')
         return redirect(url_for('admin.export_import'))
 
     try:
@@ -4498,7 +4573,7 @@ def import_topics():
 
         required_cols = {'subject_id', 'topic_name'}
         if not required_cols.issubset(set(reader.fieldnames or [])):
-            flash('CSV must contain "subject_id" and "topic_name" columns.', 'danger')
+            flash(_t('CSV must contain "subject_id" and "topic_name" columns.'), 'danger')
             return redirect(url_for('admin.export_import'))
 
         subjects = get_user_admin_subjects()
@@ -4513,13 +4588,20 @@ def import_topics():
 
         # Track sort_order from row position
         snapshotted = set()     # subjects with a restore point taken this import
-        topic_order = {}        # (subj_id, topic_name) -> sort_order
+        topic_order = {}        # (subj_id, topic id or new name) -> sort_order
         topic_counter = {}      # subj_id -> next sort_order
         subtopic_counter = {}   # topic_id -> next sort_order
+        topic_indexes = {}      # subj_id -> name index (either language)
+        subtopic_indexes = {}   # topic_id -> name index
+        # *_name_zh columns are optional (older exports); a blank cell leaves
+        # the Chinese name alone.
+        has_topic_zh = 'topic_name_zh' in reader.fieldnames
+        has_subtopic_zh = 'subtopic_name_zh' in reader.fieldnames
 
         for row_num, row in enumerate(reader, start=2):
             subj_id = row.get('subject_id', '').strip()
             topic_name = row.get('topic_name', '').strip()
+            topic_name_zh = (row.get('topic_name_zh') or '').strip() if has_topic_zh else ''
 
             if not subj_id or not topic_name:
                 skipped += 1
@@ -4539,8 +4621,14 @@ def import_topics():
                 subject_snapshot.capture(subj_id, 'topic-import')
                 snapshotted.add(subj_id)
 
+            if subj_id not in topic_indexes:
+                topic_indexes[subj_id] = build_name_index(
+                    Topic.query.filter_by(subject_id=subj_id).all())
+            topic = _csv_match_node(topic_indexes[subj_id], topic_name, topic_name_zh,
+                                    row_num, 'topic', warnings)
+
             # Determine topic sort_order from row position
-            topic_key = (subj_id, topic_name)
+            topic_key = (subj_id, topic.id if topic else topic_name.lower())
             if topic_key not in topic_order:
                 if subj_id not in topic_counter:
                     topic_counter[subj_id] = 1
@@ -4549,57 +4637,69 @@ def import_topics():
 
             # Find or create topic; a blank topic_hidden leaves the flag alone
             topic_hidden_str = (row.get('topic_hidden') or '').strip()
-            topic = Topic.query.filter_by(subject_id=subj_id, name=topic_name).first()
             if not topic:
-                topic = Topic(subject_id=subj_id, name=topic_name, sort_order=topic_order[topic_key],
+                topic = Topic(subject_id=subj_id, name=topic_name, name_zh=topic_name_zh or None,
+                              sort_order=topic_order[topic_key],
                               hidden=topic_hidden_str == '1')
                 db.session.add(topic)
                 db.session.flush()  # Get ID
+                topic_order[(subj_id, topic.id)] = topic_order[topic_key]
+                del topic_indexes[subj_id]
                 topics_created += 1
             else:
                 topic.sort_order = topic_order[topic_key]
                 if topic_hidden_str in ('0', '1'):
                     topic.hidden = topic_hidden_str == '1'
+                if topic_name_zh:
+                    topic.name_zh = topic_name_zh
                 topics_updated += 1
 
             # Handle subtopic if present
             subtopic_name = row.get('subtopic_name', '').strip()
+            subtopic_name_zh = (row.get('subtopic_name_zh') or '').strip() if has_subtopic_zh else ''
             if subtopic_name:
                 # Determine subtopic sort_order from row position
                 if topic.id not in subtopic_counter:
                     subtopic_counter[topic.id] = 1
 
-                subtopic = Subtopic.query.filter_by(topic_id=topic.id, name=subtopic_name).first()
+                if topic.id not in subtopic_indexes:
+                    subtopic_indexes[topic.id] = build_name_index(
+                        Subtopic.query.filter_by(topic_id=topic.id).all())
+                subtopic = _csv_match_node(subtopic_indexes[topic.id], subtopic_name,
+                                           subtopic_name_zh, row_num, 'subtopic', warnings)
                 if not subtopic:
                     hidden = row.get('subtopic_hidden', '0').strip() == '1'
                     subtopic = Subtopic(
-                        topic_id=topic.id, name=subtopic_name,
+                        topic_id=topic.id, name=subtopic_name, name_zh=subtopic_name_zh or None,
                         sort_order=subtopic_counter[topic.id], hidden=hidden
                     )
                     db.session.add(subtopic)
+                    db.session.flush()
+                    del subtopic_indexes[topic.id]
                     subtopics_created += 1
                 else:
                     subtopic.sort_order = subtopic_counter[topic.id]
                     hidden_str = row.get('subtopic_hidden', '').strip()
                     if hidden_str in ('0', '1'):
                         subtopic.hidden = hidden_str == '1'
+                    if subtopic_name_zh:
+                        subtopic.name_zh = subtopic_name_zh
                     subtopics_updated += 1
 
                 subtopic_counter[topic.id] += 1
 
         db.session.commit()
 
-        msg = (f'Topics import complete: '
-               f'{topics_created} topic(s) created, {topics_updated} updated, '
-               f'{subtopics_created} subtopic(s) created, {subtopics_updated} updated, '
-               f'{skipped} row(s) skipped.')
+        msg = _t('Topics import complete: {tc} topic(s) created, {tu} updated, {sc} subtopic(s) created, {su} updated, {skipped} row(s) skipped.',
+                 tc=topics_created, tu=topics_updated, sc=subtopics_created,
+                 su=subtopics_updated, skipped=skipped)
         flash(msg, 'success')
         if warnings:
-            flash('Warnings:\n' + '\n'.join(warnings[:50]), 'warning')
+            flash(_t('Warnings:') + '\n' + '\n'.join(warnings[:50]), 'warning')
 
     except Exception as e:
         db.session.rollback()
-        flash(f'Import failed: {str(e)}', 'danger')
+        flash(_t('Import failed: {error}', error=str(e)), 'danger')
 
     return redirect(url_for('admin.export_import'))
 
@@ -4613,20 +4713,21 @@ def export_chapters():
     """Export chapters and subchapters as CSV"""
     subject_id = request.args.get('subject_id')
     if not subject_id:
-        flash('Please select a subject.', 'warning')
+        flash(_t('Please select a subject.'), 'warning')
         return redirect(url_for('admin.export_import'))
 
     subjects = get_user_admin_subjects()
     subject_ids = [s.id for s in subjects]
     if subject_id not in subject_ids:
-        flash('Access denied for this subject.', 'danger')
+        flash(_t('Access denied for this subject.'), 'danger')
         return redirect(url_for('admin.export_import'))
 
     chapters_list = Chapter.query.filter_by(subject_id=subject_id).order_by(Chapter.sort_order).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['subject_id', 'chapter_name', 'chapter_hidden', 'subchapter_name', 'subchapter_hidden'])
+    writer.writerow(['subject_id', 'chapter_name', 'chapter_name_zh', 'chapter_hidden',
+                     'subchapter_name', 'subchapter_name_zh', 'subchapter_hidden'])
 
     for chapter in chapters_list:
         chapter_hidden = 1 if chapter.hidden else 0
@@ -4634,16 +4735,14 @@ def export_chapters():
         if subchapters:
             for sc in subchapters:
                 writer.writerow([
-                    subject_id, chapter.name, chapter_hidden,
-                    sc.name, 1 if sc.hidden else 0
+                    subject_id, chapter.name, chapter.name_zh or '', chapter_hidden,
+                    sc.name, sc.name_zh or '', 1 if sc.hidden else 0
                 ])
         else:
-            writer.writerow([subject_id, chapter.name, chapter_hidden, '', ''])
+            writer.writerow([subject_id, chapter.name, chapter.name_zh or '', chapter_hidden,
+                             '', '', ''])
 
-    response = make_response(output.getvalue())
-    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
-    response.headers['Content-Disposition'] = f'attachment; filename=chapters_{subject_id}.csv'
-    return response
+    return _csv_download(output.getvalue(), f'chapters_{subject_id}.csv')
 
 
 # ---------- Import Chapters/Subchapters ----------
@@ -4655,7 +4754,7 @@ def import_chapters():
     """Import chapters and subchapters from CSV"""
     file = request.files.get('file')
     if not file or not file.filename.endswith('.csv'):
-        flash('Please upload a valid CSV file.', 'danger')
+        flash(_t('Please upload a valid CSV file.'), 'danger')
         return redirect(url_for('admin.export_import'))
 
     try:
@@ -4664,7 +4763,7 @@ def import_chapters():
 
         required_cols = {'subject_id', 'chapter_name'}
         if not required_cols.issubset(set(reader.fieldnames or [])):
-            flash('CSV must contain "subject_id" and "chapter_name" columns.', 'danger')
+            flash(_t('CSV must contain "subject_id" and "chapter_name" columns.'), 'danger')
             return redirect(url_for('admin.export_import'))
 
         subjects = get_user_admin_subjects()
@@ -4679,13 +4778,20 @@ def import_chapters():
 
         # Track sort_order from row position
         snapshotted = set()       # subjects with a restore point taken this import
-        chapter_order = {}        # (subj_id, chapter_name) -> sort_order
+        chapter_order = {}        # (subj_id, chapter id or new name) -> sort_order
         chapter_counter = {}      # subj_id -> next sort_order
         subchapter_counter = {}   # chapter_id -> next sort_order
+        chapter_indexes = {}      # subj_id -> name index (either language)
+        subchapter_indexes = {}   # chapter_id -> name index
+        # *_name_zh columns are optional (older exports); a blank cell leaves
+        # the Chinese name alone.
+        has_chapter_zh = 'chapter_name_zh' in reader.fieldnames
+        has_subchapter_zh = 'subchapter_name_zh' in reader.fieldnames
 
         for row_num, row in enumerate(reader, start=2):
             subj_id = row.get('subject_id', '').strip()
             chapter_name = row.get('chapter_name', '').strip()
+            chapter_name_zh = (row.get('chapter_name_zh') or '').strip() if has_chapter_zh else ''
 
             if not subj_id or not chapter_name:
                 skipped += 1
@@ -4704,8 +4810,14 @@ def import_chapters():
                 subject_snapshot.capture(subj_id, 'chapter-import')
                 snapshotted.add(subj_id)
 
+            if subj_id not in chapter_indexes:
+                chapter_indexes[subj_id] = build_name_index(
+                    Chapter.query.filter_by(subject_id=subj_id).all())
+            chapter = _csv_match_node(chapter_indexes[subj_id], chapter_name, chapter_name_zh,
+                                      row_num, 'chapter', warnings)
+
             # Determine chapter sort_order from row position
-            chapter_key = (subj_id, chapter_name)
+            chapter_key = (subj_id, chapter.id if chapter else chapter_name.lower())
             if chapter_key not in chapter_order:
                 if subj_id not in chapter_counter:
                     chapter_counter[subj_id] = 1
@@ -4714,57 +4826,72 @@ def import_chapters():
 
             # Find or create chapter; a blank chapter_hidden leaves the flag alone
             chapter_hidden_str = (row.get('chapter_hidden') or '').strip()
-            chapter = Chapter.query.filter_by(subject_id=subj_id, name=chapter_name).first()
             if not chapter:
-                chapter = Chapter(subject_id=subj_id, name=chapter_name, sort_order=chapter_order[chapter_key],
+                chapter = Chapter(subject_id=subj_id, name=chapter_name,
+                                  name_zh=chapter_name_zh or None,
+                                  sort_order=chapter_order[chapter_key],
                                   hidden=chapter_hidden_str == '1')
                 db.session.add(chapter)
                 db.session.flush()
+                chapter_order[(subj_id, chapter.id)] = chapter_order[chapter_key]
+                del chapter_indexes[subj_id]
                 chapters_created += 1
             else:
                 chapter.sort_order = chapter_order[chapter_key]
                 if chapter_hidden_str in ('0', '1'):
                     chapter.hidden = chapter_hidden_str == '1'
+                if chapter_name_zh:
+                    chapter.name_zh = chapter_name_zh
                 chapters_updated += 1
 
             # Handle subchapter if present
             subchapter_name = row.get('subchapter_name', '').strip()
+            subchapter_name_zh = ((row.get('subchapter_name_zh') or '').strip()
+                                  if has_subchapter_zh else '')
             if subchapter_name:
                 # Determine subchapter sort_order from row position
                 if chapter.id not in subchapter_counter:
                     subchapter_counter[chapter.id] = 1
 
-                subchapter = Subchapter.query.filter_by(chapter_id=chapter.id, name=subchapter_name).first()
+                if chapter.id not in subchapter_indexes:
+                    subchapter_indexes[chapter.id] = build_name_index(
+                        Subchapter.query.filter_by(chapter_id=chapter.id).all())
+                subchapter = _csv_match_node(subchapter_indexes[chapter.id], subchapter_name,
+                                             subchapter_name_zh, row_num, 'subchapter', warnings)
                 if not subchapter:
                     hidden = row.get('subchapter_hidden', '0').strip() == '1'
                     subchapter = Subchapter(
                         chapter_id=chapter.id, name=subchapter_name,
+                        name_zh=subchapter_name_zh or None,
                         sort_order=subchapter_counter[chapter.id], hidden=hidden
                     )
                     db.session.add(subchapter)
+                    db.session.flush()
+                    del subchapter_indexes[chapter.id]
                     subchapters_created += 1
                 else:
                     subchapter.sort_order = subchapter_counter[chapter.id]
                     hidden_str = row.get('subchapter_hidden', '').strip()
                     if hidden_str in ('0', '1'):
                         subchapter.hidden = hidden_str == '1'
+                    if subchapter_name_zh:
+                        subchapter.name_zh = subchapter_name_zh
                     subchapters_updated += 1
 
                 subchapter_counter[chapter.id] += 1
 
         db.session.commit()
 
-        msg = (f'Chapters import complete: '
-               f'{chapters_created} chapter(s) created, {chapters_updated} updated, '
-               f'{subchapters_created} subchapter(s) created, {subchapters_updated} updated, '
-               f'{skipped} row(s) skipped.')
+        msg = _t('Chapters import complete: {cc} chapter(s) created, {cu} updated, {sc} subchapter(s) created, {su} updated, {skipped} row(s) skipped.',
+                 cc=chapters_created, cu=chapters_updated, sc=subchapters_created,
+                 su=subchapters_updated, skipped=skipped)
         flash(msg, 'success')
         if warnings:
-            flash('Warnings:\n' + '\n'.join(warnings[:50]), 'warning')
+            flash(_t('Warnings:') + '\n' + '\n'.join(warnings[:50]), 'warning')
 
     except Exception as e:
         db.session.rollback()
-        flash(f'Import failed: {str(e)}', 'danger')
+        flash(_t('Import failed: {error}', error=str(e)), 'danger')
 
     return redirect(url_for('admin.export_import'))
 

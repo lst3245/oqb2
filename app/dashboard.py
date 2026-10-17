@@ -16,6 +16,7 @@ from app.hierarchy import (
     is_block, part_position_label, whole_marks,
 )
 from app import md_render
+from app.i18n import display_name
 from app.storage import safe_join
 import os
 import re
@@ -276,17 +277,17 @@ def _dashboard_card(q, version_order, *, role='leaf'):
         'level': q.level,
         'q_type': q.q_type,
         'subject': q.subject,
-        'major_topic': q.major_topic.name if q.major_topic else 'N/A',
+        'major_topic': display_name(q.major_topic) if q.major_topic else 'N/A',
         'major_topic_id': q.major_topic_id,
-        'major_subtopic': q.major_subtopic.name if q.major_subtopic else None,
+        'major_subtopic': display_name(q.major_subtopic),
         'major_subtopic_id': q.major_subtopic_id,
         'minor_topic_ids': [t.id for t in q.minor_topics],
-        'minor_topics': [t.name for t in q.minor_topics],
+        'minor_topics': [display_name(t) for t in q.minor_topics],
         'subtopic_ids': [s.id for s in q.subtopics],
-        'subtopics': [s.name for s in q.subtopics],
-        'chapter': q.chapter.name if q.chapter else None,
+        'subtopics': [display_name(s) for s in q.subtopics],
+        'chapter': display_name(q.chapter),
         'chapter_id': q.chapter_id,
-        'subchapter': q.subchapter.name if q.subchapter else None,
+        'subchapter': display_name(q.subchapter),
         'subchapter_id': q.subchapter_id,
         'description': q.description,
         'correct_percentage': q.correct_percentage,
@@ -664,6 +665,12 @@ def get_sort_groups():
     return jsonify({'group_fields': group_fields, 'blocks': blocks})
 
 
+def _tax_names(node):
+    """``name`` in the request's taxonomy mode (``oqb_tax_lang``) plus both
+    stored names, so client search can match either language."""
+    return {'name': display_name(node), 'name_en': node.name, 'name_zh': node.name_zh}
+
+
 def _subject_number_maps(subject_id):
     """Full saved-list numbering for one subject (default padding ``01`` / ``1.1``)."""
     topics = Topic.query.filter_by(subject_id=subject_id).all()
@@ -713,10 +720,9 @@ def get_topics(subject_id):
     topic_nums = {}
     if subject is not None and subject.topic_number_prefix:
         topic_nums, _ = _subject_number_maps(subject_id)
-    return jsonify([{
-        'id': t.id, 'name': t.name, 'hidden': t.hidden,
-        'number': topic_nums.get(t.id),
-    } for t in topics])
+    return jsonify([dict(
+        _tax_names(t), id=t.id, hidden=t.hidden, number=topic_nums.get(t.id),
+    ) for t in topics])
 
 @dashboard_bp.route('/api/subtopics')
 @login_required
@@ -766,15 +772,15 @@ def get_subtopics():
             count = type_counts.get(q_type, 0)
         else:
             count = sum(type_counts.values())
-        result.append({
-            'id': s.id, 
-            'name': s.name, 
-            'topic_id': s.topic_id, 
-            'hidden': s.hidden,
-            'count': count,
-            'types': [t for t in ('MC', 'CQ') if type_counts.get(t)],
-            'number': sub_nums.get(s.id),
-        })
+        result.append(dict(
+            _tax_names(s),
+            id=s.id,
+            topic_id=s.topic_id,
+            hidden=s.hidden,
+            count=count,
+            types=[t for t in ('MC', 'CQ') if type_counts.get(t)],
+            number=sub_nums.get(s.id),
+        ))
     
     return jsonify(result)
 
@@ -790,7 +796,7 @@ def get_chapters(subject_id):
     if request.args.get('include_hidden', '0') != '1':
         query = query.filter(Chapter.hidden == False)
     chapters_list = query.order_by(Chapter.sort_order, Chapter.id).all()
-    return jsonify([{'id': c.id, 'name': c.name, 'hidden': c.hidden} for c in chapters_list])
+    return jsonify([dict(_tax_names(c), id=c.id, hidden=c.hidden) for c in chapters_list])
 
 @dashboard_bp.route('/api/subchapters')
 @login_required
@@ -815,7 +821,8 @@ def get_subchapters():
         query = query.filter(Subchapter.hidden == False)
     
     subchapters_list = query.order_by(Subchapter.sort_order).all()
-    return jsonify([{'id': sc.id, 'name': sc.name, 'chapter_id': sc.chapter_id, 'hidden': sc.hidden} for sc in subchapters_list])
+    return jsonify([dict(_tax_names(sc), id=sc.id, chapter_id=sc.chapter_id, hidden=sc.hidden)
+                    for sc in subchapters_list])
 
 @dashboard_bp.route('/api/years/<subject_id>/<source>')
 @login_required

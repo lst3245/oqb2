@@ -91,14 +91,15 @@ def safe_next_url(target) -> str | None:
     return target
 
 
-def retry_phrase(seconds: int) -> str:
+def retry_phrase(seconds: int, translate=None) -> str:
+    """``'45 seconds'`` / ``'2 minutes'``. ``translate`` is ``i18n.t``-shaped
+    (``translate(text, **params)``); the default formats the English."""
+    tr = translate or (lambda text, **params: text.format(**params))
     seconds = max(1, int(seconds))
     if seconds < 60:
-        unit = 'second' if seconds == 1 else 'seconds'
-        return f'{seconds} {unit}'
+        return tr('{n} second' if seconds == 1 else '{n} seconds', n=seconds)
     minutes = (seconds + 59) // 60
-    unit = 'minute' if minutes == 1 else 'minutes'
-    return f'{minutes} {unit}'
+    return tr('{n} minute' if minutes == 1 else '{n} minutes', n=minutes)
 
 
 class _Window:

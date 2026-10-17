@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Login - Question Bank{% endblock %}
+{% block title %}{{ t('Login - Question Bank') }}{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -10,20 +10,20 @@
                 <div class="card-body">
                     <div class="text-center mb-4">
                         <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="OQB" width="72" height="72" class="mb-2">
-                        <h3 class="card-title mb-0">Question Bank Login</h3>
+                        <h3 class="card-title mb-0">{{ t('Question Bank Login') }}</h3>
                     </div>
                     <form method="POST" action="{{ url_for('auth.login', next=login_next) if login_next else url_for('auth.login') }}">
                         <div class="mb-3">
-                            <label for="username" class="form-label">Username</label>
+                            <label for="username" class="form-label">{{ t('Username') }}</label>
                             <input type="text" class="form-control" id="username" name="username" required autofocus>
                         </div>
                         <div class="mb-3">
-                            <label for="password" class="form-label">Password</label>
+                            <label for="password" class="form-label">{{ t('Password') }}</label>
                             <input type="password" class="form-control" id="password" name="password" required>
                         </div>
                         <div class="d-grid">
                             <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-box-arrow-in-right"></i> Login
+                                <i class="bi bi-box-arrow-in-right"></i> {{ t('Login') }}
                             </button>
                         </div>
                     </form>

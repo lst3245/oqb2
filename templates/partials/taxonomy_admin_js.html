@@ -5,10 +5,12 @@
     #<rootId>                              parent list (Sortable, handle .tax-parent-handle)
       .tax-item[data-level=parent][data-id][data-hidden]
         > .tax-row                         the parent's own row (direct child of the item)
-            .tax-name                      double-click to rename inline
+            .tax-name                      double-click to rename inline (English `name`)
+            .tax-name-zh[data-placeholder] double-click to edit the optional Chinese
+                                           `name_zh`; no whitespace inside (uses :empty)
             .tax-num / .tax-preview        numbering / suffix preview (topics page only)
             .tax-hidden-badge              shown while hidden
-            button[data-act=up|down|rename|toggle|delete|add-child]
+            button[data-act=up|down|rename|rename-zh|toggle|delete|add-child]
         .tax-children[data-parent-id]      child list (Sortable, handle .tax-child-handle)
           .tax-item[data-level=child][data-id][data-hidden] > .tax-row ...
 
@@ -19,6 +21,8 @@
     .tax-row .drag-handle { cursor: grab; color: var(--bs-secondary-color); padding: 0 .35rem; }
     .tax-row .drag-handle:active { cursor: grabbing; }
     .tax-name { cursor: text; }
+    .tax-name-zh { cursor: text; color: var(--bs-secondary-color); margin-left: .4rem; font-weight: normal; }
+    .tax-name-zh:empty::before { content: attr(data-placeholder); font-style: italic; opacity: .55; font-size: .85em; }
     .tax-name-input { display: inline-block; width: min(28rem, 60vw); }
     .tax-item.is-hidden > .tax-row { opacity: .5; }
     .tax-item.is-hidden .tax-children { opacity: .75; }
@@ -36,7 +40,8 @@ function oqbTaxonomyAdmin(cfg) {
     const idUrl = (tpl, id) => tpl.replace('/0/', `/${id}/`);
     const isParent = item => item.dataset.level === 'parent';
     const rowOf = item => item.querySelector(':scope > .tax-row');
-    const nameEl = item => rowOf(item)?.querySelector('.tax-name');
+    const NAME_CLASS = { name: '.tax-name', name_zh: '.tax-name-zh' };
+    const nameEl = (item, field) => rowOf(item)?.querySelector(NAME_CLASS[field || 'name']);
     const items = container => Array.from(container.querySelectorAll(':scope > .tax-item'));
 
     function post(url, body) {
@@ -115,8 +120,10 @@ function oqbTaxonomyAdmin(cfg) {
 
     // ---------- inline rename ----------
 
-    function startEdit(item) {
-        const span = nameEl(item);
+    // field: 'name' (English, required) or 'name_zh' (Chinese, blank clears).
+    function startEdit(item, field) {
+        field = field || 'name';
+        const span = nameEl(item, field);
         if (!span || span.dataset.editing) return;
         span.dataset.editing = '1';
         const old = span.textContent;
@@ -133,16 +140,16 @@ function oqbTaxonomyAdmin(cfg) {
         const finish = save => {
             if (done) return;
             done = true;
-            const name = input.value.trim();
+            const value = input.value.trim();
             input.remove();
             span.classList.remove('d-none');
             delete span.dataset.editing;
-            if (!save || !name || name === old) return;
-            span.textContent = name;
+            if (!save || value === old || (field === 'name' && !value)) return;
+            span.textContent = value;
             const fd = new FormData();
-            fd.append('name', name);
+            fd.append(field, value);
             post(idUrl(isParent(item) ? cfg.urls.editParent : cfg.urls.editChild, item.dataset.id), fd)
-                .then(data => { span.textContent = data.name; })
+                .then(data => { span.textContent = data[field] || ''; })
                 .catch(err => {
                     span.textContent = old;
                     alert('Rename failed: ' + err.message);
@@ -225,6 +232,7 @@ function oqbTaxonomyAdmin(cfg) {
             case 'up':
             case 'down': move(item, btn.dataset.act); break;
             case 'rename': startEdit(item); break;
+            case 'rename-zh': startEdit(item, 'name_zh'); break;
             case 'toggle': toggleHidden(item); break;
             case 'delete': remove(item); break;
             case 'add-child': cfg.onAddChild(item.dataset.id, nameEl(item)?.textContent || ''); break;
@@ -232,11 +240,11 @@ function oqbTaxonomyAdmin(cfg) {
     });
 
     root.addEventListener('dblclick', e => {
-        const span = e.target.closest('.tax-name');
+        const span = e.target.closest('.tax-name, .tax-name-zh');
         if (!span || !root.contains(span)) return;
         e.preventDefault();
         window.getSelection()?.removeAllRanges();
-        startEdit(span.closest('.tax-item'));
+        startEdit(span.closest('.tax-item'), span.matches('.tax-name-zh') ? 'name_zh' : 'name');
     });
 
     const toggle = cfg.previewToggleId && document.getElementById(cfg.previewToggleId);

@@ -215,7 +215,7 @@
                             <select class="form-select" name="subject" id="subjectSelect" required>
                                 <option value="">Select Subject</option>
                                 {% for subject in subjects %}
-                                <option value="{{ subject.id }}">{{ subject.name }}</option>
+                                <option value="{{ subject.id }}">{{ tax_name(subject) }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -3304,6 +3304,12 @@ function prefixedFilterName(node) {
     return node.number ? (node.number + ' ' + node.name) : node.name;
 }
 
+// Lower-cased search haystack: the shown label plus both stored names, so
+// either language finds the node whatever the taxonomy display mode.
+function filterSearchKey(node, label) {
+    return ((label || node.name || '') + ' ' + OQB.taxSearchKey(node)).toLowerCase();
+}
+
 function selectedFilterLabel(checkbox) {
     const named = checkbox.parentElement.querySelector('.filter-node-name');
     return (named ? named.textContent : checkbox.parentElement.querySelector('label').textContent).trim();
@@ -3325,7 +3331,7 @@ function renderTopicCheckboxes(topics, selectedTopics = []) {
     topicDiv.innerHTML = topics.map(t => {
         const label = prefixedFilterName(t);
         return `
-        <div class="form-check ${t.hidden ? 'opacity-75' : ''}" data-topic-id="${t.id}" data-topic-name="${label.toLowerCase()}">
+        <div class="form-check ${t.hidden ? 'opacity-75' : ''}" data-topic-id="${t.id}" data-topic-name="${filterSearchKey(t, label)}">
             <input class="form-check-input topic-checkbox" type="checkbox" 
                    value="${t.id}" id="topic${t.id}" onchange="onTopicChange()"
                    ${selectedTopics.includes(t.id.toString()) ? 'checked' : ''}>
@@ -3596,7 +3602,7 @@ function renderSubtopicCheckboxes(subtopics, selectedSubtopics = []) {
         ).join('');
         const label = prefixedFilterName(s);
         return `
-        <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-id="${s.id}" data-subtopic-name="${label.toLowerCase()}">
+        <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-id="${s.id}" data-subtopic-name="${filterSearchKey(s, label)}">
             <input class="form-check-input subtopic-checkbox" type="checkbox" 
                    value="${s.id}" id="subtopic${s.id}" onchange="onSubtopicChange()"
                    ${selectedSubtopics.includes(s.id.toString()) ? 'checked' : ''}>
@@ -3830,7 +3836,7 @@ function renderChapterCheckboxes(chapters, selectedChapters = []) {
     }
 
     chapterDiv.innerHTML = chapters.map(c => `
-        <div class="form-check ${c.hidden ? 'opacity-75' : ''}" data-chapter-id="${c.id}" data-chapter-name="${c.name.toLowerCase()}">
+        <div class="form-check ${c.hidden ? 'opacity-75' : ''}" data-chapter-id="${c.id}" data-chapter-name="${filterSearchKey(c)}">
             <input class="form-check-input chapter-checkbox" type="checkbox" 
                    value="${c.id}" id="chapter${c.id}" onchange="onChapterChange()"
                    ${selectedChapters.includes(c.id.toString()) ? 'checked' : ''}>
@@ -3969,7 +3975,7 @@ function renderSubchapterCheckboxes(subchapters, selectedSubchapters = []) {
     }
 
     subchapterDiv.innerHTML = subchapters.map(sc => `
-        <div class="form-check ${sc.hidden ? 'opacity-75' : ''}" data-subchapter-id="${sc.id}" data-subchapter-name="${sc.name.toLowerCase()}">
+        <div class="form-check ${sc.hidden ? 'opacity-75' : ''}" data-subchapter-id="${sc.id}" data-subchapter-name="${filterSearchKey(sc)}">
             <input class="form-check-input subchapter-checkbox" type="checkbox" 
                    value="${sc.id}" id="subchapter${sc.id}" onchange="onSubchapterChange()"
                    ${selectedSubchapters.includes(sc.id.toString()) ? 'checked' : ''}>
@@ -5805,12 +5811,12 @@ function loadBatchTopics(subjectId) {
             // Render Major Topic searchable dropdown
             const majorOptionsDiv = document.getElementById('batchMajorTopicOptions');
             majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorTopic(\'\', \'None\')">None</div>' +
-                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${t.name.toLowerCase()}" onclick="selectBatchMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
+                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${filterSearchKey(t)}" onclick="selectBatchMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
             
             // Render Minor Topics multi-select checkboxes
             const minorCheckboxesDiv = document.getElementById('batchMinorTopicsCheckboxes');
             minorCheckboxesDiv.innerHTML = topics.map(t => `
-                <div class="form-check" data-topic-name="${t.name.toLowerCase()}">
+                <div class="form-check" data-topic-name="${filterSearchKey(t)}">
                     <input class="form-check-input batch-minor-topic-checkbox" type="checkbox" 
                            value="${t.id}" id="batchMinorTopic${t.id}" onchange="onBatchMinorTopicsChange()">
                     <label class="form-check-label" for="batchMinorTopic${t.id}">${t.name}</label>
@@ -5946,7 +5952,7 @@ function onBatchMajorTopicChange() {
             .then(subtopics => {
                 const optionsDiv = document.getElementById('batchMajorSubtopicOptions');
                 optionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectBatchMajorSubtopic(\'\', \'None\')">None</div>' +
-                    subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${s.name.toLowerCase()}" onclick="selectBatchMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
+                    subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${filterSearchKey(s)}" onclick="selectBatchMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
                 
                 // Setup search listener
                 const searchInput = document.getElementById('batchMajorSubtopicSearch');
@@ -6006,7 +6012,7 @@ function reloadBatchSubtopics() {
             .then(r => r.json())
             .then(subtopics => {
                 checkboxesDiv.innerHTML = subtopics.map(s => `
-                    <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-name="${s.name.toLowerCase()}">
+                    <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-name="${filterSearchKey(s)}">
                         <input class="form-check-input batch-subtopic-checkbox" type="checkbox" 
                                value="${s.id}" id="batchSubtopic${s.id}" onchange="onBatchSubtopicsChange()">
                         <label class="form-check-label" for="batchSubtopic${s.id}">
@@ -6114,7 +6120,7 @@ function renderBatchChapterOptions(chapters) {
     
     let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchChapter(\'\', \'None\')">None</div>';
     chapters.forEach(c => {
-        html += `<div class="searchable-option" data-value="${c.id}" data-name="${c.name.toLowerCase()}" onclick="selectBatchChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
+        html += `<div class="searchable-option" data-value="${c.id}" data-name="${filterSearchKey(c)}" onclick="selectBatchChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
             ${c.name}
         </div>`;
     });
@@ -6193,7 +6199,7 @@ function renderBatchSubchapterOptions(subchapters) {
     let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectBatchSubchapter(\'\', \'None\')">None</div>';
     subchapters.forEach(sc => {
         const hiddenIndicator = sc.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : '';
-        html += `<div class="searchable-option" data-value="${sc.id}" data-name="${sc.name.toLowerCase()}" onclick="selectBatchSubchapter('${sc.id}', '${sc.name.replace(/'/g, "\\'")}')">
+        html += `<div class="searchable-option" data-value="${sc.id}" data-name="${filterSearchKey(sc)}" onclick="selectBatchSubchapter('${sc.id}', '${sc.name.replace(/'/g, "\\'")}')">
             ${sc.name}${hiddenIndicator}
         </div>`;
     });

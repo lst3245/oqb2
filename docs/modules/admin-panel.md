@@ -61,8 +61,8 @@ All paths are relative to `/admin`. Authz column: `A` = `@admin_required` (any s
 |---|---|---|---|
 | GET | `/subjects` | S | Page; table with per-subject question/topic/chapter counts. |
 | GET | `/subjects/<subject_id>/usage` | S | JSON `{id, name, questions, topics, chapters, saved_filters, question_sets, permissions}` for the delete-confirm modal. `saved_filters` comes from `_saved_filter_subject_count()` parsing every `SavedFilter.filter_data`. |
-| POST | `/subjects/add` | S | Form `{id, name, split_parts_default?}`. `id` is stripped, uppercased, must match `^[A-Z0-9]{1,10}$` and be unique. Returns `{id, name, split_parts_default}`. |
-| POST | `/subjects/<subject_id>/edit` | S | Form `{name, split_parts_default?}`. Name and the split-default flag; the ID cannot change. |
+| POST | `/subjects/add` | S | Form `{id, name, name_zh?, split_parts_default?}`. `id` is stripped, uppercased, must match `^[A-Z0-9]{1,10}$` and be unique. Returns `{id, name, name_zh, split_parts_default}`. |
+| POST | `/subjects/<subject_id>/edit` | S | Form `{name, name_zh?, split_parts_default?}`. Name, Chinese name (only changed when posted; blank clears) and the split-default flag; the ID cannot change. |
 | POST/DELETE | `/subjects/<subject_id>/delete` | S | 400 if any `Question.subject == id`. Otherwise deletes `SavedQuestionSet`, matching `SavedFilter` rows, `UserSubjectPermission`, then the `Subject` (topics/subtopics/chapters/subchapters cascade). The `SOURCE_PATH/<subject>/` folder is left untouched. |
 
 ### Topic Management (`admin_topics.html`)
@@ -71,12 +71,12 @@ All paths are relative to `/admin`. Authz column: `A` = `@admin_required` (any s
 |---|---|---|---|
 | GET | `/topics` | A | Page for **one** subject. `?subject_id=` (must be an admin subject) → session `admin_taxonomy_subject` → first admin subject by id. Missing/unknown id is ignored (not 403). Canonical 302 to `?subject_id=` when the query does not already match. Topics ordered by `(sort_order, id)`. Also passes `topic_stats` / `subtopic_stats` = `{id: {count, types}}` from `_major_type_stats` (leaf questions by **major** topic / subtopic — the grouping generation uses, so `types` is the suffix a heading would get). |
 | POST | `/subjects/<subject_id>/number-prefixes` | A + subject admin | JSON `{topic?, subtopic?}` bools. Sets `Subject.topic_number_prefix` / `subtopic_number_prefix` (dashboard filter text prefix only). No restore point. |
-| POST | `/topics/add` | A | Form `{subject_id, name}`; `sort_order = max + 1`. |
-| POST | `/topics/<int:topic_id>/edit` | A + subject admin of the topic | Form `{name, hidden?}` (name trimmed); `hidden` only changes when present. Returns `{id, name, hidden}`. |
+| POST | `/topics/add` | A | Form `{subject_id, name, name_zh?}`; `sort_order = max + 1`. Returns `{id, name, name_zh, subject_id}`. |
+| POST | `/topics/<int:topic_id>/edit` | A + subject admin of the topic | Form `{name?, name_zh?, hidden?}` — at least one of `name` / `name_zh`; a posted `name` is trimmed and must not be blank (400 before any restore point); a blank `name_zh` clears it; `hidden` only changes when present. Returns `{id, name, name_zh, hidden}`. |
 | POST | `/topics/<int:topic_id>/toggle-hidden` | A + subject admin | Flip `hidden`; returns `{id, name, hidden}`. Subtopics keep their own flags. |
 | POST/DELETE | `/topics/<int:topic_id>/delete` | A | Delete topic (subtopics cascade). |
-| POST | `/subtopics/add` | A | Form `{topic_id, name, hidden('1'/'0')}`. |
-| POST | `/subtopics/<int:subtopic_id>/edit` | A + subject admin | Form `{name, hidden?}`; `hidden` only changes when present. |
+| POST | `/subtopics/add` | A | Form `{topic_id, name, name_zh?, hidden('1'/'0')}`. |
+| POST | `/subtopics/<int:subtopic_id>/edit` | A + subject admin | Same body / reply as the topic edit. |
 | POST | `/subtopics/<int:subtopic_id>/toggle-hidden` | A + subject admin | Flip `hidden`; returns `{id, name, hidden}`. |
 | POST/DELETE | `/subtopics/<int:subtopic_id>/delete` | A | Delete subtopic. |
 | POST | `/topics/reorder` | A | JSON `{topic_ids: [...]}`; index becomes `sort_order`. |
@@ -104,6 +104,7 @@ Both pages share `oqbTaxonomyAdmin` (`partials/taxonomy_admin_js.html`); every c
 
 - **Reorder**: drag the grip (SortableJS standard config, children only within their own parent) or the arrows; both POST the full sibling id list to the reorder route.
 - **Rename**: double-click the name (or the pencil) → inline input; Enter / blur saves through the edit route, Esc cancels. Blank or unchanged names are not sent.
+- **Chinese name**: the muted span after the name (`.tax-name-zh`, "+ 中文名稱" when empty) — double-click it or press **中** to edit inline; it posts only `name_zh`, and saving it blank clears it. The Add modals have a Chinese name field. How names are shown elsewhere: [i18n.md](i18n.md).
 - **Hide / delete**: eye button → toggle-hidden route; hidden rows are dimmed and badged, children of a hidden parent are dimmed too.
 - **Preview (Topics only)**: `Numbering & MC/CQ preview` switch (default on, `localStorage['oqb_adminTaxonomyPreview']`) shows the `01` / `1.1` prefix `number_taxonomy` would assign (recomputed client-side after every drag / hide / delete; default padding only), the MC / CQ chips and the major-tag count.
 - **Dashboard filter prefix** (Topics page, two switches, saved immediately): `topic_number_prefix` (default on) and `subtopic_number_prefix` (default off). The dashboard filter then writes that number as plain text before the name. Generated papers are unchanged.
@@ -122,16 +123,16 @@ Both pages share `oqbTaxonomyAdmin` (`partials/taxonomy_admin_js.html`); every c
 
 ### Export / Import (`admin_export_import.html`)
 
-All exports are CSV (`text/csv; charset=utf-8`, attachment). Imports read `utf-8-sig`, are idempotent (upsert), flash a summary plus up to 50 warnings, and redirect back to `/admin/export-import`.
+All exports are CSV (`text/csv; charset=utf-8`, attachment) written by `_csv_download`, which prepends a UTF-8 BOM so Excel shows Chinese correctly. Imports read `utf-8-sig` (BOM optional), are idempotent (upsert), flash a summary plus up to 50 warnings, and redirect back to `/admin/export-import`. Every import matches taxonomy names in English, Chinese or `English 中文` (`i18n.build_name_index`, case- and whitespace-insensitive).
 
 | Method | Path | Authz | Purpose |
 |---|---|---|---|
 | GET | `/export-import` | A | Page; subject picker limited to admin subjects. |
 | GET | `/export/question-tags` | A | Either `?question_ids=1,2,3` (DB ids, filtered to the caller's admin subjects unless super admin; filename `question_tags_selected_{N}.csv`, used by the "Dashboard selections only" toggle) **or** `?subject_id=MATC` (whole subject; `question_tags_{subject_id}.csv`). `question_ids` wins when both present. Rows sorted by `hierarchy.sort_key`. Columns: `qid, subject, major_topic, major_subtopic, minor_topics, subtopics, chapter, subchapter, section, level, q_type, correct_percentage, marks, description, answer, comment`. Multi-valued columns are `; `-joined names. |
 | POST | `/import/question-tags` | A | Multipart `file` (`.csv`) + repeated `import_fields` checkboxes (subset of the 14 non-key columns; none submitted = import all). Only fields both selected and present in the CSV are applied. Matches by `qid`; rows for unknown QIDs or non-admin subjects are skipped. Names resolve within the question's subject; unknown names null the field and add a warning. `major_subtopic` requires a resolved `major_topic`; `subchapter` requires a resolved `chapter`. `correct_percentage` outside 0-100 becomes NULL. `marks`: blank clears; a whole number 0-999 is written on leaves; stems and bad values are skipped with a warning (it is a restore-point field, so a `tag-import` point is taken when it is imported). |
-| GET | `/export/topics` | A | `?subject_id=`; columns `subject_id, topic_name, topic_hidden, subtopic_name, subtopic_hidden`; row order = `sort_order`. |
-| POST | `/import/topics` | A | Requires `subject_id` + `topic_name` columns. Row position defines `sort_order` (topics and subtopics renumbered from 1). Creates missing topics/subtopics; `topic_hidden` / `subtopic_hidden` `0`/`1` update the flag when present (blank or missing column = leave alone, so older CSVs still import). |
-| GET | `/export/chapters` | A | `?subject_id=`; columns `subject_id, chapter_name, chapter_hidden, subchapter_name, subchapter_hidden`. |
+| GET | `/export/topics` | A | `?subject_id=`; columns `subject_id, topic_name, topic_name_zh, topic_hidden, subtopic_name, subtopic_name_zh, subtopic_hidden`; row order = `sort_order`. |
+| POST | `/import/topics` | A | Requires `subject_id` + `topic_name` columns. Row position defines `sort_order` (topics and subtopics renumbered from 1). An existing node is found by `*_name` in either language, else by its `*_name_zh` cell (warning; the English name is kept). Creates missing topics/subtopics (with the Chinese name when given); `topic_hidden` / `subtopic_hidden` `0`/`1` and a filled `topic_name_zh` / `subtopic_name_zh` update the row when present (blank or missing column = leave alone, so older CSVs still import). Never renames an English name. |
+| GET | `/export/chapters` | A | `?subject_id=`; columns `subject_id, chapter_name, chapter_name_zh, chapter_hidden, subchapter_name, subchapter_name_zh, subchapter_hidden`. |
 | POST | `/import/chapters` | A | Same rules as topics import. |
 
 ### Ingestion (legacy) and Smart Import

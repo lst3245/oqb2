@@ -4,6 +4,7 @@ Authentication routes and handlers
 from flask import Blueprint, current_app, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
 from app import db
+from app.i18n import t as _t
 from app.login_guard import LoginThrottle, client_ip, retry_phrase, safe_next_url
 from app.models import User
 from app.utils import admin_required, validate_username
@@ -45,7 +46,8 @@ def login():
         ip = _client_ip()
         wait = _login_throttle.retry_after(ip, username)
         if wait:
-            flash(f'Too many login attempts. Try again in {retry_phrase(wait)}.', 'danger')
+            flash(_t('Too many login attempts. Try again in {wait}.',
+                     wait=retry_phrase(wait, _t)), 'danger')
             return render_template('login.html', login_next=nxt), 429
 
         user = User.query.filter_by(username=username).first() if username else None
@@ -56,7 +58,7 @@ def login():
             return redirect(_after_login_url())
 
         _login_throttle.record_failure(ip, username)
-        flash('Invalid username or password', 'danger')
+        flash(_t('Invalid username or password'), 'danger')
 
     return render_template('login.html', login_next=nxt)
 
@@ -65,7 +67,7 @@ def login():
 def logout():
     """Logout user"""
     logout_user()
-    flash('You have been logged out successfully', 'success')
+    flash(_t('You have been logged out successfully'), 'success')
     return redirect(url_for('auth.login'))
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
@@ -80,15 +82,16 @@ def register():
         
         ok, err = validate_username(username)
         if not ok:
-            flash(err, 'danger')
+            # validate_username's messages are catalogue keys
+            flash(_t(err), 'danger')
         elif User.query.filter_by(username=username).first():
-            flash('Username already exists', 'danger')
+            flash(_t('Username already exists'), 'danger')
         else:
             user = User(username=username, is_admin=is_admin)
             user.set_password(password)
             db.session.add(user)
             db.session.commit()
-            flash(f'User {username} created successfully', 'success')
+            flash(_t('User {username} created successfully', username=username), 'success')
             return redirect(url_for('dashboard.index'))
     
     return render_template('register.html')

@@ -56,6 +56,11 @@ The top navigation bar has:
 - **File Browser** — your personal **My Files** home plus the **Shared** folder for each subject you can access (subject admins can edit their Shared folder; other members have read-only access; pure read-only viewers don't see it). It reopens in the folder you last used, on any computer you sign in from.
 - **Toolbox** — utilities such as Markup
 - **Admin** — visible to admins only
+- **Language** (globe icon, also on the login page) — two separate choices, remembered on this computer / browser only:
+  - **Interface language**: English or 繁體中文 for menus, buttons and messages. Pages not yet translated stay in English.
+  - **Topic and chapter names**: English, 中文 or Both (`Basic Algebra 基礎代數`). A topic without a Chinese name always shows its English name. Searching a topic or chapter box finds it by either name.
+
+  Neither choice changes which version (EN / CH / BI …) of a question is printed — that is still **Version Priority** on the Generate page.
 
 ---
 
@@ -377,6 +382,13 @@ Two options under Document structure change how section headings and split file 
 
 #### Denote Cross-Topic
 Appends `[Cross Topic: X, Y]` to the info line when a question has minor topics in addition to its primary topic.
+
+#### Heading language
+Under Document structure, **Heading language** sets the language of the topic / chapter names and fixed words the document prints: section headings, the info line, split file names, the `ANSWERS` / `SOLUTIONS` title and the Cross Topic note.
+- **Auto** (default) follows the first version in your Version Priority: EN → English, CH → 中文 (`答案`, `跨課題`), BI → both (`Basic Algebra 基礎代數`).
+- **English**, **中文** or **Both** forces that choice.
+
+A topic with no Chinese name is printed in English. The question images and files themselves are chosen by Version Priority, not by this option. Presets and regenerated files keep the choice.
 
 ### File Name
 Enter a name (without extension). A timestamp is appended automatically. Leave blank to use `questions_TIMESTAMP`.

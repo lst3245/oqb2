@@ -11,10 +11,10 @@ session, committed before the run starts).
 
 Payload (JSON, ``PAYLOAD_VERSION``):
 
-* ``topics`` / ``chapters``: ``id, name, hidden, sort_order, description``
-  (``hidden`` absent in points taken before 2026-10-06; restore then leaves
-  the live flag alone)
-* ``subtopics`` / ``subchapters``: ``id, <parent>_id, name, hidden,
+* ``topics`` / ``chapters``: ``id, name, name_zh, hidden, sort_order,
+  description`` (``hidden`` absent in points taken before 2026-10-06,
+  ``name_zh`` before 2026-10-17; restore then leaves the live value alone)
+* ``subtopics`` / ``subchapters``: ``id, <parent>_id, name, name_zh, hidden,
   sort_order, description``
 * ``questions``: one array per question, columns named by
   ``question_columns`` (``QUESTION_COLUMNS``)
@@ -68,11 +68,12 @@ ACTION_LABELS = {
 
 TAXONOMY_KINDS = ('topics', 'subtopics', 'chapters', 'subchapters')
 TAXONOMY_FIELDS = {
-    'topics': ('name', 'hidden', 'sort_order', 'description'),
-    'subtopics': ('topic_id', 'name', 'hidden', 'sort_order', 'description'),
-    'chapters': ('name', 'hidden', 'sort_order', 'description'),
-    'subchapters': ('chapter_id', 'name', 'hidden', 'sort_order', 'description'),
+    'topics': ('name', 'name_zh', 'hidden', 'sort_order', 'description'),
+    'subtopics': ('topic_id', 'name', 'name_zh', 'hidden', 'sort_order', 'description'),
+    'chapters': ('name', 'name_zh', 'hidden', 'sort_order', 'description'),
+    'subchapters': ('chapter_id', 'name', 'name_zh', 'hidden', 'sort_order', 'description'),
 }
+NAME_FIELDS = ('name', 'name_zh')
 PARENT = {'subtopics': ('topics', 'topic_id'), 'subchapters': ('chapters', 'chapter_id')}
 KIND_LABELS = {'topics': 'Topic', 'subtopics': 'Subtopic',
                'chapters': 'Chapter', 'subchapters': 'Subchapter'}
@@ -348,18 +349,30 @@ def _display(field, value, *states):
     return '—' if value is None else name(value)
 
 
+def _both_names(row):
+    """``"English 中文"`` when the row carries a different Chinese name. Pure."""
+    name = row.get('name') or ''
+    zh = (row.get('name_zh') or '').strip()
+    return f'{name} {zh}' if zh and zh != name else name
+
+
 def summarize(plan, live, point, sample_limit=PREVIEW_SAMPLE_LIMIT):
     """Human-readable preview of ``plan`` (names, counts, sample rows). Pure."""
     taxonomy = {}
     for kind in TAXONOMY_KINDS:
         t = plan['taxonomy'][kind]
-        renamed = [{'from': u['old']['name'], 'to': u['set']['name']}
-                   for u in t['update'] if 'name' in u['set']]
+        renamed = []
+        for u in t['update']:
+            if any(f in u['set'] for f in NAME_FIELDS):
+                cur = live[kind].get(u['id'], u['old'])
+                renamed.append({'from': _both_names(cur),
+                                'to': _both_names(dict(cur, **u['set']))})
         taxonomy[kind] = {
             'label': KIND_LABELS[kind],
             'recreate': [r['name'] for r in t['insert']],
             'rename': renamed,
-            'other_updates': sum(1 for u in t['update'] if 'name' not in u['set']),
+            'other_updates': sum(1 for u in t['update']
+                                 if not any(f in u['set'] for f in NAME_FIELDS)),
             'delete': [live[kind][nid]['name'] for nid in t['delete']],
             'keep_newer': [live[kind][nid]['name'] for nid in t['keep']],
         }
@@ -407,30 +420,33 @@ def read_state(subject_id, session=None):
     state = empty_state(subject_id)
     qt = Question.__table__
     with s.no_autoflush:
-        for r in s.execute(select(Topic.id, Topic.name, Topic.hidden, Topic.sort_order,
-                                  Topic.description)
+        for r in s.execute(select(Topic.id, Topic.name, Topic.name_zh, Topic.hidden,
+                                  Topic.sort_order, Topic.description)
                            .where(Topic.subject_id == subject_id)):
-            state['topics'][r.id] = {'name': r.name, 'hidden': bool(r.hidden),
-                                     'sort_order': r.sort_order,
+            state['topics'][r.id] = {'name': r.name, 'name_zh': r.name_zh,
+                                     'hidden': bool(r.hidden), 'sort_order': r.sort_order,
                                      'description': r.description}
-        for r in s.execute(select(Subtopic.id, Subtopic.topic_id, Subtopic.name, Subtopic.hidden,
-                                  Subtopic.sort_order, Subtopic.description)
+        for r in s.execute(select(Subtopic.id, Subtopic.topic_id, Subtopic.name, Subtopic.name_zh,
+                                  Subtopic.hidden, Subtopic.sort_order, Subtopic.description)
                            .join(Topic, Topic.id == Subtopic.topic_id)
                            .where(Topic.subject_id == subject_id)):
             state['subtopics'][r.id] = {'topic_id': r.topic_id, 'name': r.name,
+                                        'name_zh': r.name_zh,
                                         'hidden': bool(r.hidden), 'sort_order': r.sort_order,
                                         'description': r.description}
-        for r in s.execute(select(Chapter.id, Chapter.name, Chapter.hidden, Chapter.sort_order,
-                                  Chapter.description)
+        for r in s.execute(select(Chapter.id, Chapter.name, Chapter.name_zh, Chapter.hidden,
+                                  Chapter.sort_order, Chapter.description)
                            .where(Chapter.subject_id == subject_id)):
-            state['chapters'][r.id] = {'name': r.name, 'hidden': bool(r.hidden),
-                                       'sort_order': r.sort_order,
+            state['chapters'][r.id] = {'name': r.name, 'name_zh': r.name_zh,
+                                       'hidden': bool(r.hidden), 'sort_order': r.sort_order,
                                        'description': r.description}
         for r in s.execute(select(Subchapter.id, Subchapter.chapter_id, Subchapter.name,
-                                  Subchapter.hidden, Subchapter.sort_order, Subchapter.description)
+                                  Subchapter.name_zh, Subchapter.hidden, Subchapter.sort_order,
+                                  Subchapter.description)
                            .join(Chapter, Chapter.id == Subchapter.chapter_id)
                            .where(Chapter.subject_id == subject_id)):
             state['subchapters'][r.id] = {'chapter_id': r.chapter_id, 'name': r.name,
+                                          'name_zh': r.name_zh,
                                           'hidden': bool(r.hidden), 'sort_order': r.sort_order,
                                           'description': r.description}
 

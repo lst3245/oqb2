@@ -19,7 +19,7 @@
                             <label class="form-label fw-bold" for="addSubject">Subject</label>
                             <select class="form-select" id="addSubject" onchange="updateAddQidPreview()">
                                 {% for s in subjects %}
-                                <option value="{{ s.id }}">{{ s.id }} — {{ s.name }}</option>
+                                <option value="{{ s.id }}">{{ s.id }} — {{ tax_name(s) }}</option>
                                 {% endfor %}
                             </select>
                             <div class="form-text" id="addSubjectHint"></div>

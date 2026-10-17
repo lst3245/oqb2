@@ -16,6 +16,7 @@
 | `app/storage.py` | `ensure_user_generated_dir(user)` / `user_generated_dir(user)` — where output files are written. |
 | `app/user.py` | `_get_or_create_default_section` (new files land in the owner's default My Files section), `_user_can_view_file` (PDF route permission). |
 | `app/ai_prompts.py` | `normalize_inline_math` used by `_preprocess_md_for_pandoc`. |
+| `tests/test_generator_labels.py` | Section labels: numbering, MC / CQ suffix, heading language (`en` / `zh` / `both`, `Unknown` / `Uncategorized` words), grouping by id, CJK-safe filenames. |
 | `tests/test_generator_answers.py` | Answer config normalisation (incl. legacy modes), `_pick_answer_source` fallback, per-type inline / end rendering with stubs (no live DB). |
 
 ## Tables
@@ -76,7 +77,7 @@ The answer settings are one shared **placement** plus an answer type per questio
 | `answer_type_cq` | `none` / `ANS` / `SOL` | Answer for every other leaf (CQ and `q_type` NULL, same rule as spacing) |
 | `answer_fallback` | bool | Swap ANS ↔ SOL when the requested type is missing (see Asset selection). Default on in the form |
 
-With `end`, leaves whose type is `none` are dropped from the answers list **before** `_assign_headings`, so the first answered part carries the answer heading; if nothing is left there is no answers section. Section title: `ANSWERS` (all ANS/KEY), `SOLUTIONS` (all SOL), else `ANSWERS AND SOLUTIONS`.
+With `end`, leaves whose type is `none` are dropped from the answers list **before** `_assign_headings`, so the first answered part carries the answer heading; if nothing is left there is no answers section. Section title: `ANSWERS` (all ANS/KEY), `SOLUTIONS` (all SOL), else `ANSWERS AND SOLUTIONS`, in the heading language (`答案` / `題解` / `答案及題解`, or both; `i18n.doc_label`).
 
 Legacy `answer_mode` (old presets, regenerated files, direct callers) maps as follows. A legacy config has `fallback=False` unless `answer_fallback` is present, so old files regenerate unchanged:
 
@@ -145,7 +146,8 @@ Form defaults: MC and CQ both `lines/0` before, `lines/1` after (CQ used to defa
 | `show_page_no` | bool | footer page numbers (`_add_page_numbers`) |
 | `keep_together` | bool | `keep_with_next` on headings |
 | `apply_spacing_to_ans` | bool | False |
-| `denote_cross_topic` | bool | appends `[Cross Topic: X, Y]` to the info line |
+| `denote_cross_topic` | bool | appends `[Cross Topic: X, Y]` (`[跨課題: …]` in Chinese) to the info line |
+| `heading_lang` | `auto` / `en` / `zh` / `both` | default `auto` (also when absent from old presets / unknown). Language of taxonomy names and fixed words in the document; see Heading language below |
 | `hierarchy_mode` | `selected` / `whole` | default `selected`. `selected` = stem + chosen leaves; `whole` = expand every selected node's root. Selecting a stem always expands to all descendants. |
 | `info_fields`, `section_fields`, `split_fields` | dict of `topic/subtopic/chapter/subchapter` bools | per-question info line / section heading on change / split into separate docx |
 | `number_topics` | bool | False. Section headings + split names prefix topic `01` / subtopic `1.1` from the saved topic list (see Section labels) |
@@ -180,20 +182,24 @@ Every answer slot goes through `_pick_answer_source(question, primary, fallback_
 
 ### Split to ZIP
 
-If any `split_fields` are enabled, `_split_questions_into_groups()` groups the **already-sorted** list by first appearance of the section key (returns a list of `(label, questions)`), so manual block order flows into split order automatically. Labels come from `_format_section_label(..., missing='Unknown', group_sep=' _ ')` (`Topic - Subtopic _ Chapter - Subchapter`, `Uncategorized` when empty) and are sanitised by `_sanitize_filename`; duplicates get ` (2)`, ` (3)`.
+If any `split_fields` are enabled, `_split_questions_into_groups()` groups the **already-sorted** list by first appearance of the section key (returns a list of `(label, questions)`), so manual block order flows into split order automatically. Labels come from `_format_section_label(..., missing=doc_label('unknown'), group_sep=' _ ', lang=…)` (`Topic - Subtopic _ Chapter - Subchapter`, `Uncategorized` when empty; both words follow the heading language) and are sanitised by `_sanitize_filename`, which keeps letters in any script (Chinese names survive); duplicates get ` (2)`, ` (3)`. `zipfile` flags non-ASCII entry names as UTF-8.
 
 ### Section labels (headings and split names)
 
-One builder, `_format_section_label(question, fields, numbering, suffix, missing, group_sep)`, serves the section heading (`' | '` between the topic and chapter halves, untagged fields skipped) and the split filename (`' _ '`, untagged = `Unknown`).
+One builder, `_format_section_label(question, fields, numbering, suffix, missing, group_sep, lang)`, serves the section heading (`' | '` between the topic and chapter halves, untagged fields skipped) and the split filename (`' _ '`, untagged = `Unknown`).
 
 - **Numbering** (`number_topics`): `_build_topic_numbering(subject_ids, pad_topic, pad_subtopic)` runs once per job in `_generate_in_background` and calls the pure `app.utils.number_taxonomy(topics, subtopics, pad_topic=True, pad_subtopic=False)` per subject. Topics are numbered `01`, `02` … (`1`, `2` … with `number_pad_topic` off) in `(sort_order, id)` order over the **whole saved list** (not the selection). Visible subtopics of a visible topic get `<topic n>.<k>` (`1.1`; `01.01` with `number_pad_subtopic`). Hidden topics and hidden subtopics get no number and do not consume one; subtopics under a hidden topic are unnumbered too. Chapters / subchapters are never numbered. The Admin → Topics page previews the same numbering client-side (default padding only).
 - **Type suffix** (`type_suffix`): `_type_suffix(questions)` → `MC` / `CQ` / `MC CQ` / `''` from the questions **in that section or file**, not the library. Split: per group. Headings: `_section_run_suffixes` looks ahead over each consecutive run of leaf entries sharing a section key. The suffix attaches to the last topic-side part (subtopic if enabled, else topic). A chapter-only label gets none.
-- Section change detection still compares the raw name key (`_get_section_key`); the decorations never start a new section.
+- Section change detection compares node **ids** (`_get_section_key`), never names, so neither the decorations nor the heading language can start or merge a section (two nodes with the same name stay separate).
 - Example: `01 Basic Algebra - 1.1 Law of Indices MC CQ`.
+
+### Heading language
+
+`heading_lang` (Generate page → Document structure → **Heading language**, saved in presets and `generation_options`) is resolved once per job by `i18n.doc_lang(heading_lang, version_priority)`: `en` / `zh` / `both` as chosen; `auto` follows the **first** version in the priority list (EN / ENO → English, CH / CHO → 中文, BI → both). `_generate_in_background` stores the result in `label_opts['lang']`; `create_word_document` passes it as `label_lang` to `_add_section_heading`, `add_question_content_to_doc` (info line, Cross Topic note) and the answers title, and `_split_questions_into_groups` uses it for split names. Names come from `i18n.doc_name` (Chinese falls back to English per node; both = `English 中文`), fixed words from `i18n.doc_label`. The generator never reads the UI-language or taxonomy cookies (it runs in a thread). Spec: [i18n.md](i18n.md).
 
 ### Custom Word styles (`_define_oqb_styles`)
 
-`OQB Section Heading` (centred bold 14 pt), `OQB Question ID` (bold 12 pt), `OQB Question Info` (italic 10 pt grey), `OQB Body Text` (11 pt). All `quick_style=True`, zero space before/after; reused if already present.
+`OQB Section Heading` (centred bold 14 pt), `OQB Question ID` (bold 12 pt), `OQB Question Info` (italic 10 pt grey), `OQB Body Text` (11 pt). All `quick_style=True`, zero space before/after; reused if already present. Each sets the East Asian font `PMingLiU` (`_EAST_ASIAN_FONT`, `w:eastAsia`) so Chinese headings do not fall back to a random font; Latin text keeps the theme font.
 
 ### Generate-page UX (`generate.html`)
 

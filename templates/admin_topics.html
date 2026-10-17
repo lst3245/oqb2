@@ -46,7 +46,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-tags"></i> Manage Topics &amp; Subtopics
-            {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ subject.name }}</small>{% endif %}
+            {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ tax_name(subject) }}</small>{% endif %}
         </h2>
         <div class="d-flex align-items-center gap-2">
             {% with endpoint='admin.topics' %}
@@ -67,6 +67,7 @@
     </div>
     <p class="text-muted mt-1 mb-0"><i class="bi bi-info-circle"></i> One subject at a time.
         Drag <i class="bi bi-grip-vertical"></i> (or use the arrows) to reorder; double-click a name to rename it.
+        The grey name beside it is the optional Chinese name (double-click or <strong>中</strong> to edit; blank clears it).
         Hidden topics / subtopics stay taggable but drop out of the dashboard filter, numbering and AI tag hints.</p>
     <hr>
 
@@ -75,7 +76,7 @@
     {% else %}
     <div class="card mb-4">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h5 class="mb-0">{{ subject.name }} ({{ subject.id }})</h5>
+            <h5 class="mb-0">{{ tax_name(subject) }} ({{ subject.id }})</h5>
             <div class="form-check form-switch mb-0" title="Show the numbering and MC / CQ suffix that generation would print (default padding 01 / 1.1)">
                 <input class="form-check-input" type="checkbox" role="switch" id="taxPreviewToggle" checked>
                 <label class="form-check-label small" for="taxPreviewToggle">Numbering &amp; MC/CQ preview</label>
@@ -114,7 +115,7 @@
                             </div>
                             <h6 class="mb-0">
                                 <span class="tax-preview tax-num badge text-bg-light border font-monospace me-1"></span><i class="bi bi-tag"></i>
-                                <span class="tax-name" title="Double-click to rename">{{ topic.name }}</span>
+                                <span class="tax-name" title="Double-click to rename">{{ topic.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="Chinese name — double-click to edit" data-placeholder="+ 中文名稱">{{ topic.name_zh or '' }}</span>
                                 {{ type_chips(topic_stats.get(topic.id)) }}
                                 <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not topic.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
                             </h6>
@@ -124,6 +125,7 @@
                                 <i class="bi bi-{{ 'eye' if topic.hidden else 'eye-slash' }}"></i>
                             </button>
                             <button class="btn btn-sm btn-outline-primary" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-outline-primary" data-act="rename-zh" title="Edit Chinese name">中</button>
                             <button class="btn btn-sm btn-outline-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
                             <button class="btn btn-sm btn-success" data-act="add-child"><i class="bi bi-plus"></i> Subtopic</button>
                         </div>
@@ -142,7 +144,7 @@
                                     </div>
                                     <span>
                                         <span class="tax-preview tax-num badge text-bg-light border font-monospace me-1"></span><i class="bi bi-diagram-3"></i>
-                                        <span class="tax-name" title="Double-click to rename">{{ subtopic.name }}</span>
+                                        <span class="tax-name" title="Double-click to rename">{{ subtopic.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="Chinese name — double-click to edit" data-placeholder="+ 中文名稱">{{ subtopic.name_zh or '' }}</span>
                                         {{ type_chips(subtopic_stats.get(subtopic.id)) }}
                                         <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not subtopic.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
                                     </span>
@@ -152,6 +154,7 @@
                                         <i class="bi bi-{{ 'eye' if subtopic.hidden else 'eye-slash' }}"></i>
                                     </button>
                                     <button class="btn btn-sm btn-outline-primary" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                                    <button class="btn btn-sm btn-outline-primary" data-act="rename-zh" title="Edit Chinese name">中</button>
                                     <button class="btn btn-sm btn-outline-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
                                 </div>
                             </div>
@@ -179,8 +182,12 @@
             </div>
             <div class="modal-body">
                 <form id="topicForm" onsubmit="event.preventDefault(); saveTopic();">
-                    <label class="form-label" for="topicName">Topic Name</label>
-                    <input type="text" class="form-control" id="topicName" required>
+                    <div class="mb-3">
+                        <label class="form-label" for="topicName">Topic Name</label>
+                        <input type="text" class="form-control" id="topicName" required>
+                    </div>
+                    <label class="form-label" for="topicNameZh">Chinese name <span class="text-muted">(optional)</span></label>
+                    <input type="text" class="form-control" id="topicNameZh" maxlength="200" lang="zh-Hant">
                 </form>
             </div>
             <div class="modal-footer">
@@ -205,6 +212,10 @@
                     <div class="mb-3">
                         <label class="form-label" for="subtopicName">Subtopic Name</label>
                         <input type="text" class="form-control" id="subtopicName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="subtopicNameZh">Chinese name <span class="text-muted">(optional)</span></label>
+                        <input type="text" class="form-control" id="subtopicNameZh" maxlength="200" lang="zh-Hant">
                     </div>
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" role="switch" id="subtopicHidden">
@@ -289,13 +300,18 @@ function saveNumberPrefixes() {
 
 function showAddTopicModal() {
     document.getElementById('topicName').value = '';
+    document.getElementById('topicNameZh').value = '';
     topicModal.show();
 }
 
 function saveTopic() {
     const name = document.getElementById('topicName').value.trim();
     if (!name) return;
-    postForm('{{ url_for("admin.add_topic") }}', { name: name, subject_id: {{ (subject.id if subject else '')|tojson }} })
+    postForm('{{ url_for("admin.add_topic") }}', {
+        name: name,
+        name_zh: document.getElementById('topicNameZh').value.trim(),
+        subject_id: {{ (subject.id if subject else '')|tojson }},
+    })
         .then(() => location.reload())
         .catch(err => alert('Error adding topic: ' + err.message));
 }
@@ -304,6 +320,7 @@ function showAddSubtopicModal(topicId, topicName) {
     document.getElementById('subtopicTopicId').value = topicId;
     document.getElementById('subtopicParentName').textContent = '— ' + topicName;
     document.getElementById('subtopicName').value = '';
+    document.getElementById('subtopicNameZh').value = '';
     document.getElementById('subtopicHidden').checked = false;
     subtopicModal.show();
 }
@@ -313,6 +330,7 @@ function saveSubtopic() {
     if (!name) return;
     postForm('{{ url_for("admin.add_subtopic") }}', {
         name: name,
+        name_zh: document.getElementById('subtopicNameZh').value.trim(),
         topic_id: document.getElementById('subtopicTopicId').value,
         hidden: document.getElementById('subtopicHidden').checked ? '1' : '0',
     })

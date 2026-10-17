@@ -36,17 +36,23 @@ def _state():
     """MATC-like subject: two topics, three subtopics, one chapter."""
     s = empty_state('MATC')
     s['topics'] = {
-        1: {'name': '01 Numbers', 'hidden': False, 'sort_order': 1, 'description': None},
-        2: {'name': '02 Algebra', 'hidden': False, 'sort_order': 2, 'description': 'eqns'},
+        1: {'name': '01 Numbers', 'name_zh': None, 'hidden': False, 'sort_order': 1,
+            'description': None},
+        2: {'name': '02 Algebra', 'name_zh': '代數', 'hidden': False, 'sort_order': 2,
+            'description': 'eqns'},
     }
     s['subtopics'] = {
-        10: {'topic_id': 1, 'name': 'Integers', 'hidden': False, 'sort_order': 1, 'description': None},
-        11: {'topic_id': 1, 'name': 'Fractions', 'hidden': True, 'sort_order': 2, 'description': None},
-        20: {'topic_id': 2, 'name': 'Linear', 'hidden': False, 'sort_order': 1, 'description': None},
+        10: {'topic_id': 1, 'name': 'Integers', 'name_zh': None, 'hidden': False,
+             'sort_order': 1, 'description': None},
+        11: {'topic_id': 1, 'name': 'Fractions', 'name_zh': None, 'hidden': True,
+             'sort_order': 2, 'description': None},
+        20: {'topic_id': 2, 'name': 'Linear', 'name_zh': None, 'hidden': False,
+             'sort_order': 1, 'description': None},
     }
-    s['chapters'] = {5: {'name': 'Ch 1', 'hidden': False, 'sort_order': 1, 'description': None}}
-    s['subchapters'] = {50: {'chapter_id': 5, 'name': '1.1', 'hidden': False, 'sort_order': 1,
-                             'description': None}}
+    s['chapters'] = {5: {'name': 'Ch 1', 'name_zh': None, 'hidden': False, 'sort_order': 1,
+                         'description': None}}
+    s['subchapters'] = {50: {'chapter_id': 5, 'name': '1.1', 'name_zh': None, 'hidden': False,
+                             'sort_order': 1, 'description': None}}
     s['questions'] = {
         100: _q('MATC_Q1', major_topic_id=1, major_subtopic_id=10, level=2, q_type='MC',
                 section='A', correct_percentage=55, minor_topic_ids=(2,), subtopic_ids=(20,)),
@@ -145,6 +151,34 @@ class CodecTests(unittest.TestCase):
         self.assertEqual(plan['taxonomy']['topics']['update'],
                          [{'id': 2, 'set': {'hidden': False}, 'old': {'hidden': True}}])
 
+    def test_pre_name_zh_payload_keeps_live_chinese_names(self):
+        data = json.loads(encode_state(_state()))
+        for kind in ('topics', 'subtopics', 'chapters', 'subchapters'):
+            for row in data[kind]:
+                row.pop('name_zh', None)
+        point = decode_state(json.dumps(data))
+        self.assertNotIn('name_zh', point['topics'][2])
+
+        live = _copy(_state())
+        live['topics'][1]['name_zh'] = '數'
+        live['chapters'][5]['name_zh'] = '第一章'
+        del live['subtopics'][20]
+        plan = plan_restore(live, point)
+        self.assertEqual(plan['taxonomy']['topics']['update'], [])
+        self.assertEqual(plan['taxonomy']['chapters']['update'], [])
+        self.assertNotIn('name_zh', plan['taxonomy']['subtopics']['insert'][0])
+
+    def test_name_zh_change_is_restored(self):
+        point = _copy(_state())
+        live = _copy(_state())
+        live['topics'][2]['name_zh'] = '直線'
+        live['subchapters'][50]['name_zh'] = '新'
+        plan = plan_restore(live, point)
+        self.assertEqual(plan['taxonomy']['topics']['update'],
+                         [{'id': 2, 'set': {'name_zh': '代數'}, 'old': {'name_zh': '直線'}}])
+        self.assertEqual(plan['taxonomy']['subchapters']['update'],
+                         [{'id': 50, 'set': {'name_zh': None}, 'old': {'name_zh': '新'}}])
+
 
 class PlanTests(unittest.TestCase):
     def test_identical_states_plan_nothing(self):
@@ -196,8 +230,8 @@ class PlanTests(unittest.TestCase):
         plan = plan_restore(live, point)
         self.assertEqual([r['id'] for r in plan['taxonomy']['topics']['insert']], [2])
         ins = plan['taxonomy']['subtopics']['insert']
-        self.assertEqual(ins, [{'id': 20, 'topic_id': 2, 'name': 'Linear', 'hidden': False,
-                                'sort_order': 1, 'description': None}])
+        self.assertEqual(ins, [{'id': 20, 'topic_id': 2, 'name': 'Linear', 'name_zh': None,
+                                'hidden': False, 'sort_order': 1, 'description': None}])
         by_id = {u['id']: u for u in plan['questions']['scalar_updates']}
         self.assertEqual(by_id[101]['major_topic_id'], 2)
         self.assertEqual(by_id[101]['major_subtopic_id'], 20)
@@ -291,7 +325,7 @@ class SummaryTests(unittest.TestCase):
         self.assertTrue(summary['has_changes'])
         self.assertEqual(summary['questions_changed'], 1)
         self.assertEqual(summary['taxonomy']['topics']['rename'],
-                         [{'from': '07 Straight Lines', 'to': '02 Algebra'}])
+                         [{'from': '07 Straight Lines 代數', 'to': '02 Algebra 代數'}])
         fields = {fc['field']: fc['count'] for fc in summary['field_counts']}
         self.assertEqual(fields, {'Major topic': 1, 'Correct %': 1})
         sample = summary['samples'][0]

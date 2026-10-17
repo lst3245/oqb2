@@ -114,6 +114,13 @@ Used by generation (`app/generator.py`), DOC thumbnails (`app/doc_thumbnails.py`
 - **Asset identity** is the unique tuple `(question_id, asset_type, version, file_format, part_number)`.
 - **Versions**: `app/utils.VERSIONS = ['EN','CH','BI','ENO','CHO']`, `VERSION_LABELS`, `TYPED_VERSIONS = ['EN','CH','BI']`, `OFFICIAL_VERSIONS = ['ENO','CHO']`, `DEFAULT_VERSION_PRIORITY`. `parse_version_priority(raw, legacy_preferred)` parses the comma list from forms and accepts the legacy single `preferred_language` value. Templates receive `OQB_VERSIONS` / `OQB_VERSION_LABELS` / `OQB_DEFAULT_VERSION_PRIORITY` from a context processor — build version UIs from these, never a hardcoded list.
 - Asset selection for display/generation ranks candidates by `(format priority, version priority)`; default format priority `IMG > MD > DOC` is user-reorderable per generation (see [../modules/generator.md](../modules/generator.md)).
+- **Taxonomy and subject names**: `name` is English and is the identity used for sorting and matching; `name_zh` is optional Chinese. References are ids. Show names with `app.i18n.display_name` (request cookie) or `doc_name(node, lang)` (documents, explicit language); resolve typed names with `build_name_index` / `lookup_name`. Never compare against a display string.
+
+## UI language (`app/i18n.py`)
+
+- Teacher-facing strings (flash, JSON `error` / `message` shown to a teacher, templates) go through `t('English text', **params)` — imported as `from app.i18n import t as _t` in modules that use `t` as a variable. Keys are the exact English text in `app/translations/zh_Hant.json`; one plain literal per call, values as `{placeholder}` params, so `tests/test_i18n.py` can check coverage.
+- `t()` reads the `oqb_lang` cookie from the current request and returns English outside a request. Background threads never call it for document text; they receive a resolved language (`label_opts['lang']`).
+- Logs, SSE progress messages, AI prompts and raw exception text stay English. Spec: [../modules/i18n.md](../modules/i18n.md).
 
 ## Sorting (`app/utils.py`)
 

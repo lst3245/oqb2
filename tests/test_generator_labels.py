@@ -107,5 +107,51 @@ class FormatSectionLabelTests(unittest.TestCase):
         self.assertEqual(groups[0][0], 'Unknown _ Unknown')
 
 
+class HeadingLanguageTests(unittest.TestCase):
+    def setUp(self):
+        self.topic = _node(1, 'Planet Earth', name_zh='地球')
+        self.sub = _node(10, 'Rocks', name_zh=None)
+        self.numbering = {'topic': {1: '01'}, 'subtopic': {10: '1.1'}}
+        self.fields = {'topic': True, 'subtopic': True}
+
+    def test_label_languages(self):
+        q = _q(self.topic, self.sub)
+        expected = {
+            'en': '01 Planet Earth - 1.1 Rocks MC',
+            'zh': '01 地球 - 1.1 Rocks MC',
+            'both': '01 Planet Earth 地球 - 1.1 Rocks MC',
+        }
+        for lang, label in expected.items():
+            self.assertEqual(
+                generator._format_section_label(q, self.fields, self.numbering, 'MC', lang=lang),
+                label, lang)
+
+    def test_nodes_without_name_zh_attribute(self):
+        q = _q(_node(2, 'Algebra'))
+        self.assertEqual(generator._format_section_label(q, {'topic': True}, lang='zh'), 'Algebra')
+
+    def test_split_missing_and_uncategorized_labels(self):
+        groups = generator._split_questions_into_groups(
+            [_q(None, None)], {'topic': True}, {'lang': 'zh'})
+        self.assertEqual(groups[0][0], '未知')
+        groups = generator._split_questions_into_groups(
+            [_q(None, None)], {'topic': True}, {'lang': 'both'})
+        self.assertEqual(groups[0][0], 'Unknown 未知')
+        groups = generator._split_questions_into_groups(
+            [_q(self.topic)], {}, {'lang': 'zh'})
+        self.assertEqual(groups[0][0], '未分類')
+
+    def test_grouping_is_by_id_not_name(self):
+        twin_a = _node(1, 'Same name')
+        twin_b = _node(2, 'Same name')
+        qs = [_q(twin_a), _q(twin_b)]
+        self.assertNotEqual(generator._get_section_key(qs[0], {'topic': True}),
+                            generator._get_section_key(qs[1], {'topic': True}))
+        self.assertEqual(len(generator._split_questions_into_groups(qs, {'topic': True})), 2)
+
+    def test_sanitize_keeps_chinese(self):
+        self.assertEqual(generator._sanitize_filename('01 地球 - Rocks: MC?'), '01 地球 - Rocks MC')
+
+
 if __name__ == '__main__':
     unittest.main()

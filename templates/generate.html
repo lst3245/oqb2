@@ -385,6 +385,17 @@
                                             </div>
                                             <small class="text-muted d-block">e.g. <code>01 Basic Algebra - 1.1 Law of Indices MC CQ</code>. Types are those in that section or file.</small>
                                         </div>
+                                        <div class="mt-2">
+                                            <label class="text-muted fw-bold small d-block mb-1" for="headingLang">Heading language</label>
+                                            <select class="form-select form-select-sm w-auto" id="headingLang" name="heading_lang"
+                                                    onchange="syncAdvancedOptionSummaries()">
+                                                <option value="auto" selected>Auto — follow the top version</option>
+                                                <option value="en">English</option>
+                                                <option value="zh" lang="zh-Hant">中文</option>
+                                                <option value="both">Both (English 中文)</option>
+                                            </select>
+                                            <small class="text-muted d-block">Topic / chapter names in section headings, info lines and split file names, plus the <code>ANSWERS</code> title and <code>[Cross Topic]</code> note. Auto: EN / ENO → English, CH / CHO → 中文, BI → both. A name with no Chinese falls back to English.</small>
+                                        </div>
                                         <hr>
                                         <div class="form-check">
                                             <input type="checkbox" class="form-check-input" id="denoteCrossTopic" name="denote_cross_topic">
@@ -680,7 +691,7 @@
                     <label class="form-label small fw-bold mb-0" for="marksRulesSubject">Subject</label>
                     <select class="form-select form-select-sm w-auto" id="marksRulesSubject">
                         {% for s in marks_subjects %}
-                        <option value="{{ s.id }}" data-can-edit="{{ 1 if s.can_edit else 0 }}">{{ s.id }} — {{ s.name }}</option>
+                        <option value="{{ s.id }}" data-can-edit="{{ 1 if s.can_edit else 0 }}">{{ s.id }} — {{ tax_name(s) }}</option>
                         {% endfor %}
                     </select>
                     <span class="badge bg-warning text-dark" id="marksRulesEditedBadge" style="display:none;">Edited for this paper</span>
@@ -1233,6 +1244,11 @@ function restoreGenerationOptions(opts) {
         if (el) el.checked = opts[key] === undefined ? dflt : (opts[key] === 'on' || opts[key] === true);
     });
     updateNumberPadUI();
+    {
+        const el = document.getElementById('headingLang');
+        const v = opts.heading_lang;
+        if (el) el.value = ['auto', 'en', 'zh', 'both'].includes(v) ? v : 'auto';
+    }
 
     updateSequentialNumberUI();
     updateCompactMcAnswerKeyUI();
@@ -1409,6 +1425,7 @@ function getCurrentGenerationOptions() {
         number_pad_topic: getCheckedValue('numberPadTopic'),
         number_pad_subtopic: getCheckedValue('numberPadSubtopic'),
         type_suffix: getCheckedValue('typeSuffix'),
+        heading_lang: document.getElementById('headingLang')?.value || 'auto',
     };
 }
 
@@ -1701,6 +1718,7 @@ function syncAdvancedOptionSummaries({openCustomized = false} = {}) {
     let structureCount = structureIds.filter(id => document.getElementById(id)?.checked).length;
     if (getCheckedValue('numberTopics') &&
             (!getCheckedValue('numberPadTopic') || getCheckedValue('numberPadSubtopic'))) structureCount++;
+    if ((document.getElementById('headingLang')?.value || 'auto') !== 'auto') structureCount++;
 
     let spacingCount = 0;
     if (!document.getElementById('mcBeforeLines').checked ||

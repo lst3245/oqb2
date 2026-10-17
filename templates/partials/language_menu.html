@@ -1,0 +1,30 @@
+{# Navbar language menu (docs/modules/i18n.md). Two per-device cookies:
+   UI language (oqb_lang) and how topic / chapter names show (oqb_tax_lang).
+   Included in base.html's navbar <ul>. #}
+<li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"
+       title="{{ t('Language') }}" aria-label="{{ t('Language') }}">
+        <i class="bi bi-translate"></i> {{ '中' if OQB_UI_LANG == 'zh' else 'EN' }}
+    </a>
+    <ul class="dropdown-menu dropdown-menu-end">
+        <li><h6 class="dropdown-header">{{ t('Interface language') }}</h6></li>
+        {% for code, label in (('en', 'English'), ('zh', '繁體中文')) %}
+        <li>
+            <button type="button" class="dropdown-item d-flex align-items-center gap-2{% if OQB_UI_LANG == code %} active{% endif %}"
+                    onclick="OQB.setLang('ui', '{{ code }}')">
+                <i class="bi {{ 'bi-check2' if OQB_UI_LANG == code else 'bi-dot' }}"></i> {{ label }}
+            </button>
+        </li>
+        {% endfor %}
+        <li><hr class="dropdown-divider"></li>
+        <li><h6 class="dropdown-header">{{ t('Topic and chapter names') }}</h6></li>
+        {% for code, label in (('en', 'English'), ('zh', '中文'), ('both', t('Both'))) %}
+        <li>
+            <button type="button" class="dropdown-item d-flex align-items-center gap-2{% if OQB_TAX_LANG == code %} active{% endif %}"
+                    onclick="OQB.setLang('tax', '{{ code }}')">
+                <i class="bi {{ 'bi-check2' if OQB_TAX_LANG == code else 'bi-dot' }}"></i> {{ label }}
+            </button>
+        </li>
+        {% endfor %}
+    </ul>
+</li>

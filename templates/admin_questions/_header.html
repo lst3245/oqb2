@@ -8,7 +8,7 @@
             <select class="form-select aq-subject-select" id="aqSubject" aria-label="Subject">
                 <option value="" disabled selected>Choose a subject…</option>
                 {% for s in subjects %}
-                <option value="{{ s.id }}">{{ s.id }} — {{ s.name }}</option>
+                <option value="{{ s.id }}">{{ s.id }} — {{ tax_name(s) }}</option>
                 {% endfor %}
             </select>
         </div>

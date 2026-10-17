@@ -69,7 +69,7 @@
                 <select id="subjectSelect" class="form-select" onchange="libUpdateButtons()">
                     <option value="">-- Select Subject --</option>
                     {% for subject in subjects %}
-                    <option value="{{ subject.id }}">{{ subject.name }} ({{ subject.id }})</option>
+                    <option value="{{ subject.id }}">{{ tax_name(subject) }} ({{ subject.id }})</option>
                     {% endfor %}
                 </select>
             </div>
@@ -178,7 +178,7 @@ Select a subject and click "Start Ingestion" to begin a library scan.
                         <label class="form-label fw-bold">Subject</label>
                         <select id="fiSubject" class="form-select">
                             {% for subject in subjects %}
-                            <option value="{{ subject.id }}">{{ subject.name }} ({{ subject.id }})</option>
+                            <option value="{{ subject.id }}">{{ tax_name(subject) }} ({{ subject.id }})</option>
                             {% endfor %}
                         </select>
                     </div>

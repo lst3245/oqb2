@@ -1,10 +1,17 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ OQB_HTML_LANG }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Online Question Bank{% endblock %}</title>
+    <title>{% block title %}{{ t('Online Question Bank') }}{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+
+    <!-- UI language: OQB.t() / OQB.setLang() (docs/modules/i18n.md). Loaded
+         synchronously so inline page scripts can call OQB.t() at once. -->
+    {% if OQB_UI_LANG == 'zh' %}
+    <script src="{{ url_for('i18n.catalogue_js', lang='zh') }}?v={{ OQB_I18N_VERSION }}"></script>
+    {% endif %}
+    <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
 
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -467,7 +474,7 @@
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('dashboard.index') }}">
                 <img src="{{ url_for('static', filename='img/logo-navbar.svg') }}" alt="" class="oqb-brand-logo" width="32" height="32">
-                Question Bank
+                {{ t('Question Bank') }}
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -477,59 +484,62 @@
                     {% if current_user.is_authenticated %}
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('dashboard.index') }}">
-                                <i class="bi bi-grid"></i> Dashboard
+                                <i class="bi bi-grid"></i> {{ t('Dashboard') }}
                             </a>
                         </li>
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
-                                <i class="bi bi-person"></i> My Stuff
+                                <i class="bi bi-person"></i> {{ t('My Stuff') }}
                             </a>
                             <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="{{ url_for('user.profiles') }}"><i class="bi bi-bookmark"></i> Search Profiles</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('toolbox.index') }}"><i class="bi bi-tools"></i> Toolbox</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('user.profiles') }}"><i class="bi bi-bookmark"></i> {{ t('Search Profiles') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('toolbox.index') }}"><i class="bi bi-tools"></i> {{ t('Toolbox') }}</a></li>
                                 {% if current_user.is_super_admin or not current_user.is_all_view_only() %}
-                                <li><a class="dropdown-item" href="{{ url_for('files.browser') }}"><i class="bi bi-folder2-open"></i> File Browser</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('files.browser') }}"><i class="bi bi-folder2-open"></i> {{ t('File Browser') }}</a></li>
                                 {% endif %}
                                 {% if current_user.can_generate() %}
-                                <li><a class="dropdown-item" href="{{ url_for('user.sets') }}"><i class="bi bi-collection"></i> Question Sets</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('user.gen_profiles') }}"><i class="bi bi-bookmark-star"></i> Generation Presets</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('user.files') }}"><i class="bi bi-file-earmark-word"></i> My Files</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('user.sets') }}"><i class="bi bi-collection"></i> {{ t('Question Sets') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('user.gen_profiles') }}"><i class="bi bi-bookmark-star"></i> {{ t('Generation Presets') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('user.files') }}"><i class="bi bi-file-earmark-word"></i> {{ t('My Files') }}</a></li>
                                 {% endif %}
                             </ul>
                         </li>
                         {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
-                                <i class="bi bi-gear"></i> Admin
+                                <i class="bi bi-gear"></i> {{ t('Admin') }}
                             </a>
                             <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="{{ url_for('admin.index') }}"><i class="bi bi-speedometer2"></i> Admin Panel</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.index') }}"><i class="bi bi-speedometer2"></i> {{ t('Admin Panel') }}</a></li>
                                 <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.questions_page') }}"><i class="bi bi-journal-text"></i> Question Management</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.topics') }}"><i class="bi bi-tags"></i> Manage Topics</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.chapters') }}"><i class="bi bi-book"></i> Manage Chapters</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('subject_ai.index') }}"><i class="bi bi-magic"></i> AI Tagging Tuning</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('restore_points.page') }}"><i class="bi bi-clock-history"></i> Restore Points</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.questions_page') }}"><i class="bi bi-journal-text"></i> {{ t('Question Management') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.topics') }}"><i class="bi bi-tags"></i> {{ t('Manage Topics') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.chapters') }}"><i class="bi bi-book"></i> {{ t('Manage Chapters') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('subject_ai.index') }}"><i class="bi bi-magic"></i> {{ t('AI Tagging Tuning') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('restore_points.page') }}"><i class="bi bi-clock-history"></i> {{ t('Restore Points') }}</a></li>
                                 <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.export_import') }}"><i class="bi bi-arrow-left-right"></i> Export / Import</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.smart_import_page') }}"><i class="bi bi-magic"></i> Smart Import</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.pdf_import_page') }}"><i class="bi bi-filetype-pdf"></i> PDF Import</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.export_import') }}"><i class="bi bi-arrow-left-right"></i> {{ t('Export / Import') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.smart_import_page') }}"><i class="bi bi-magic"></i> {{ t('Smart Import') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.pdf_import_page') }}"><i class="bi bi-filetype-pdf"></i> {{ t('PDF Import') }}</a></li>
                                 {% if current_user.is_super_admin %}
                                 <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.subjects') }}"><i class="bi bi-mortarboard"></i> Manage Subjects</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-people"></i> Manage Users</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.health') }}"><i class="bi bi-heart-pulse"></i> Database Health</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.files') }}"><i class="bi bi-folder2-open"></i> File Browser</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.settings_page') }}"><i class="bi bi-sliders"></i> System Settings</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.llm_endpoints_page') }}"><i class="bi bi-robot"></i> LLM Endpoints</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('admin.prompts_page') }}"><i class="bi bi-chat-square-text"></i> AI Prompts</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.subjects') }}"><i class="bi bi-mortarboard"></i> {{ t('Manage Subjects') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-people"></i> {{ t('Manage Users') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.health') }}"><i class="bi bi-heart-pulse"></i> {{ t('Database Health') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.files') }}"><i class="bi bi-folder2-open"></i> {{ t('File Browser') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.settings_page') }}"><i class="bi bi-sliders"></i> {{ t('System Settings') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.llm_endpoints_page') }}"><i class="bi bi-robot"></i> {{ t('LLM Endpoints') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.prompts_page') }}"><i class="bi bi-chat-square-text"></i> {{ t('AI Prompts') }}</a></li>
                                 {% endif %}
                             </ul>
                         </li>
                         {% endif %}
+                    {% endif %}
+                    {% include 'partials/language_menu.html' %}
+                    {% if current_user.is_authenticated %}
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('auth.logout') }}">
-                                <i class="bi bi-box-arrow-right"></i> Logout ({{ current_user.username }})
+                                <i class="bi bi-box-arrow-right"></i> {{ t('Logout ({username})', username=current_user.username) }}
                             </a>
                         </li>
                     {% endif %}
@@ -545,7 +555,7 @@
                 {% for category, message in messages %}
                     <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
                         {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ t('Close') }}"></button>
                     </div>
                 {% endfor %}
             {% endif %}

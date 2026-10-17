@@ -38,6 +38,7 @@ from app.hierarchy import (
 from app import word_com
 from app import ai_prompts
 from app import marks_spacing
+from app.i18n import HEADING_LANGS, doc_lang, doc_label, doc_name, t as _t
 
 generator_bp = Blueprint('generator', __name__, url_prefix='/generate')
 
@@ -386,7 +387,7 @@ def index():
             pass
     
     if not question_ids:
-        flash('No questions selected', 'warning')
+        flash(_t('No questions selected'), 'warning')
         return redirect(url_for('dashboard.index'))
     
     # Get questions - preserve the selection order by using a dict
@@ -452,7 +453,7 @@ def viewer():
                          session.get('sort_config', [{"field": "qid", "direction": "asc"}]))
     
     if not question_ids:
-        flash('No questions selected', 'warning')
+        flash(_t('No questions selected'), 'warning')
         return redirect(url_for('dashboard.index'))
     
     # Get questions - preserve the selection order by using a dict
@@ -795,6 +796,11 @@ def create_document():
     )
     answer_preference = request.form.get('answer_preference', 'image_first')
     format_priority = _parse_format_priority(request.form.get('format_priority', ''))
+    # Language of headings / info lines / answers title; `auto` follows the
+    # top version (i18n.doc_lang). Unknown values fall back to auto.
+    heading_lang = request.form.get('heading_lang', 'auto')
+    if heading_lang not in HEADING_LANGS:
+        heading_lang = 'auto'
 
     # Output format is always DOCX at generation time. Users opt in to PDF
     # on demand from My Files via `GET /generate/<id>/pdf` (which lazily
@@ -861,6 +867,7 @@ def create_document():
         'number_topics': number_topics, 'type_suffix': type_suffix,
         'number_pad_topic': number_pad_topic, 'number_pad_subtopic': number_pad_subtopic,
         'version_priority': ','.join(version_priority),
+        'heading_lang': heading_lang,
         'answer_preference': answer_preference,
         'format_priority': ','.join(format_priority),
         'output_format': output_format,
@@ -936,7 +943,8 @@ def create_document():
               mc_answer_key_options, hierarchy_mode),
         kwargs={'number_topics': number_topics, 'type_suffix': type_suffix,
                 'number_pad_topic': number_pad_topic,
-                'number_pad_subtopic': number_pad_subtopic},
+                'number_pad_subtopic': number_pad_subtopic,
+                'heading_lang': heading_lang},
     )
     thread.daemon = True
     thread.start()
@@ -954,7 +962,8 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                             sort_group_order_str='', mc_answer_key_options=None,
                             hierarchy_mode=HIERARCHY_MODE_SELECTED,
                             number_topics=False, type_suffix=False,
-                            number_pad_topic=True, number_pad_subtopic=False):
+                            number_pad_topic=True, number_pad_subtopic=False,
+                            heading_lang='auto'):
     """Background thread function to generate the Word document(s) (and PDF)"""
     format_priority = format_priority or list(_DEFAULT_FORMAT_PRIORITY)
     output_format = (output_format or 'DOCX').upper()
@@ -1009,6 +1018,7 @@ def _generate_in_background(app, gen_file_id, question_ids, sort_mode, sort_conf
                     if number_topics else None
                 ),
                 'type_suffix': type_suffix,
+                'lang': doc_lang(heading_lang, version_priority),
             }
 
             any_split = split_fields and any(split_fields.values())
@@ -1198,19 +1208,21 @@ def _split_questions_into_groups(questions, split_fields, label_opts=None):
         groups.setdefault(key, []).append(question)
 
     label_opts = label_opts or {}
+    lang = label_opts.get('lang') or 'en'
     result = []
     for group_questions in groups.values():
         suffix = _type_suffix(group_questions) if label_opts.get('type_suffix') else ''
         label = _format_section_label(
             group_questions[0], split_fields, label_opts.get('numbering'), suffix,
-            missing='Unknown', group_sep=' _ ',
-        ) or 'Uncategorized'
+            missing=doc_label('unknown', lang), group_sep=' _ ', lang=lang,
+        ) or doc_label('uncategorized', lang)
         result.append((label, group_questions))
     return result
 
 
 def _sanitize_filename(name):
-    """Sanitize a string for use as a filename."""
+    """Sanitize a string for use as a filename. Letters in any script are
+    kept (``str.isalnum`` is true for CJK), so Chinese split labels survive."""
     # Replace characters not safe for filenames
     safe = "".join(c for c in name if c.isalnum() or c in '._- ').strip()
     return safe if safe else 'Untitled'
@@ -1244,18 +1256,18 @@ def download_file(file_id):
     
     # Only owner or super admin
     if gen_file.user_id != current_user.id and not current_user.is_super_admin:
-        flash('Access denied', 'danger')
+        flash(_t('Access denied'), 'danger')
         return redirect(url_for('user.files'))
     
     if gen_file.status != 'completed':
-        flash('File is not ready for download', 'warning')
+        flash(_t('File is not ready for download'), 'warning')
         return redirect(url_for('user.files'))
     
     output_path = generated_file_dir(gen_file)
     filepath = os.path.join(output_path, gen_file.filename)
     
     if not os.path.exists(filepath):
-        flash('File not found on disk', 'danger')
+        flash(_t('File not found on disk'), 'danger')
         return redirect(url_for('user.files'))
     
     # Determine mimetype based on file extension
@@ -1503,6 +1515,7 @@ def _marks_subjects_for(questions):
     return [{
         'id': s.id,
         'name': s.name,
+        'name_zh': s.name_zh,
         'has_rules': marks_spacing.load_rules(s.marks_spacing) is not None,
         'can_edit': bool(current_user.is_subject_admin(s.id)),
     } for s in Subject.query.filter(Subject.id.in_(ids)).order_by(Subject.id).all()]
@@ -1782,6 +1795,9 @@ def add_after_spacing(doc, spacing, allow_ruled=False):
         return False
 
 
+_EAST_ASIAN_FONT = 'PMingLiU'  # 新細明體, ships with Windows / Office
+
+
 def _define_oqb_styles(doc):
     """
     Create (or ensure) the four OQB custom paragraph styles used throughout the document.
@@ -1811,6 +1827,9 @@ def _define_oqb_styles(doc):
         font.italic = italic
         if colour_rgb:
             font.color.rgb = colour_rgb
+        # Chinese headings / info lines; Latin text keeps the theme font.
+        style.element.get_or_add_rPr().get_or_add_rFonts().set(
+            qn('w:eastAsia'), _EAST_ASIAN_FONT)
         pf = style.paragraph_format
         pf.space_before = Pt(0)
         pf.space_after = Pt(0)
@@ -1853,16 +1872,17 @@ def _add_page_numbers(doc):
 
 
 def _get_section_key(question, section_fields):
-    """Get the current section key tuple based on which section fields are enabled."""
+    """Section key tuple for the enabled section fields. Keyed by node id,
+    not name, so the grouping cannot change with the heading language."""
     key = []
     if section_fields.get('topic'):
-        key.append(('topic', question.major_topic.name if question.major_topic else None))
+        key.append(('topic', question.major_topic.id if question.major_topic else None))
     if section_fields.get('subtopic'):
-        key.append(('subtopic', question.major_subtopic.name if question.major_subtopic else None))
+        key.append(('subtopic', question.major_subtopic.id if question.major_subtopic else None))
     if section_fields.get('chapter'):
-        key.append(('chapter', question.chapter.name if question.chapter else None))
+        key.append(('chapter', question.chapter.id if question.chapter else None))
     if section_fields.get('subchapter'):
-        key.append(('subchapter', question.subchapter.name if question.subchapter else None))
+        key.append(('subchapter', question.subchapter.id if question.subchapter else None))
     return tuple(key)
 
 
@@ -1900,14 +1920,16 @@ def _type_suffix(questions):
 
 
 def _format_section_label(question, fields, numbering=None, suffix='',
-                          missing=None, group_sep=' | '):
+                          missing=None, group_sep=' | ', lang='en'):
     """
     Section heading / split filename label, e.g.
     ``01 Basic Algebra - 1.1 Law of Indices MC CQ | Chapter 3``.
 
     ``numbering`` comes from `_build_topic_numbering` (topics / subtopics only).
     ``suffix`` is appended to the last topic-side part. Untagged fields are
-    skipped, or shown as ``missing`` when given. Returns None when empty.
+    skipped, or shown as ``missing`` when given. Names are printed in the
+    resolved heading language ``lang`` (`i18n.doc_lang`: en / zh / both).
+    Returns None when empty.
     """
     numbering = numbering or {}
 
@@ -1915,7 +1937,8 @@ def _format_section_label(question, fields, numbering=None, suffix='',
         if node is None:
             return missing
         num = numbering.get(field, {}).get(node.id)
-        return f'{num} {node.name}' if num else node.name
+        text = doc_name(node, lang)
+        return f'{num} {text}' if num else text
 
     topic_parts = []
     if fields.get('topic'):
@@ -1960,7 +1983,7 @@ def _section_run_suffixes(questions, section_fields):
 
 
 def _add_section_heading(doc, question, prev_key, section_fields, keep_together=False,
-                         numbering=None, suffix=''):
+                         numbering=None, suffix='', lang='en'):
     """
     If any tracked section field changed, insert a centered bold heading.
     Returns the new key.
@@ -1969,7 +1992,8 @@ def _add_section_heading(doc, question, prev_key, section_fields, keep_together=
     if current_key == prev_key:
         return prev_key  # no change
     
-    heading_text = _format_section_label(question, section_fields, numbering, suffix)
+    heading_text = _format_section_label(question, section_fields, numbering, suffix,
+                                         lang=lang)
     
     if heading_text:
         heading = doc.add_paragraph(style='OQB Section Heading')
@@ -2199,10 +2223,12 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
                                type is ``KEY`` (placement ``end`` only).
         hierarchy_mode: ``selected`` (default) or ``whole``. See
             ``app.hierarchy.resolve_render_plan``.
-        label_opts: ``{'numbering': {...} | None, 'type_suffix': bool}`` for
-            section headings (see `_format_section_label`).
+        label_opts: ``{'numbering': {...} | None, 'type_suffix': bool,
+            'lang': 'en'|'zh'|'both'}`` for section headings, the info line
+            and the answers title (see `_format_section_label`, `i18n.doc_lang`).
     """
     label_opts = label_opts or {}
+    label_lang = label_opts.get('lang') or 'en'
     if not format_priority:
         format_priority = list(_DEFAULT_FORMAT_PRIORITY)
     # Normalise version_priority into a full ordered list (accepts list, comma
@@ -2301,6 +2327,7 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
             seq_no=seq_no, keep_together=keep_together,
             denote_cross_topic=denote_cross_topic,
             format_priority=format_priority, doc_insertions=doc_insertions,
+            label_lang=label_lang,
         )
 
     heading_suffix_by_entry = {}
@@ -2358,6 +2385,7 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
                     doc, question, prev_section_key, section_fields, keep_together,
                     numbering=label_opts.get('numbering'),
                     suffix=heading_suffix_by_entry.get(id(entry), ''),
+                    lang=label_lang,
                 )
             add_before_spacing(doc, spacing, last_had_page_break, i == 0)
             add_question_content_to_doc(
@@ -2365,6 +2393,7 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
                 show_correct_pct, seq_no=entry_seq, info_fields=info_fields,
                 keep_together=keep_together, denote_cross_topic=denote_cross_topic,
                 format_priority=format_priority, doc_insertions=doc_insertions,
+                label_lang=label_lang,
             )
             if with_inline_answer:
                 atype = answer_type_for(question)
@@ -2389,11 +2418,11 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
             for e in leaf_entries
         }
         if used_types == {'SOL'}:
-            section_title = 'SOLUTIONS'
+            section_title = doc_label('solutions', label_lang)
         elif used_types == {'ANS'}:
-            section_title = 'ANSWERS'
+            section_title = doc_label('answers', label_lang)
         else:
-            section_title = 'ANSWERS AND SOLUTIONS'
+            section_title = doc_label('answers_solutions', label_lang)
 
         # Then add all answers - always start on new page
         doc.add_page_break()
@@ -2468,7 +2497,7 @@ def create_word_document(questions, answer_config, spacing_config, show_qid, sho
 
     return doc, doc_insertions
 
-def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, version_priority=None, show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False, format_priority=None, doc_insertions=None):
+def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path, version_priority=None, show_correct_pct=False, answer_preference='image_first', seq_no=None, info_fields=None, keep_together=False, denote_cross_topic=False, format_priority=None, doc_insertions=None, label_lang='en'):
     """
     Add a question (or answer/solution) content to the document.
     Spacing is handled separately by add_before_spacing and add_after_spacing.
@@ -2491,6 +2520,8 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
                         source file. Pass None on platforms / setups where
                         Word COM is unavailable; the function then falls back
                         to an italic placeholder line.
+        label_lang: resolved heading language (en / zh / both) for the info
+                    line and the Cross Topic note.
     """
     if info_fields is None:
         info_fields = {}
@@ -2532,7 +2563,7 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
         minor_topic_names = []
         if denote_cross_topic:
             try:
-                minor_topic_names = [t.name for t in question.minor_topics]
+                minor_topic_names = [doc_name(mt, label_lang) for mt in question.minor_topics]
             except Exception:
                 minor_topic_names = []
         is_cross_topic = denote_cross_topic and bool(minor_topic_names)
@@ -2546,24 +2577,26 @@ def add_question_content_to_doc(doc, question, asset_type, show_qid, source_path
             show_major_topic = info_fields.get('topic') or is_cross_topic
             
             if show_major_topic and question.major_topic:
-                topic_part.append(question.major_topic.name)
+                topic_part.append(doc_name(question.major_topic, label_lang))
             if info_fields.get('subtopic') and question.major_subtopic:
-                topic_part.append(question.major_subtopic.name)
+                topic_part.append(doc_name(question.major_subtopic, label_lang))
             if info_fields.get('chapter') and question.chapter:
-                chapter_part.append(question.chapter.name)
+                chapter_part.append(doc_name(question.chapter, label_lang))
             if info_fields.get('subchapter') and question.subchapter:
-                chapter_part.append(question.subchapter.name)
+                chapter_part.append(doc_name(question.subchapter, label_lang))
             
+            cross_note = (f'[{doc_label("cross_topic", label_lang)}: '
+                          f'{", ".join(minor_topic_names)}]') if is_cross_topic else ''
             info_parts = []
             if topic_part:
                 topic_str = ' - '.join(topic_part)
                 # Append cross-topic annotation if applicable
                 if is_cross_topic:
-                    topic_str += f' [Cross Topic: {", ".join(minor_topic_names)}]'
+                    topic_str += f' {cross_note}'
                 info_parts.append(topic_str)
             elif is_cross_topic:
                 # No topic_part but still cross-topic — show the annotation alone
-                info_parts.append(f'[Cross Topic: {", ".join(minor_topic_names)}]')
+                info_parts.append(cross_note)
             if chapter_part:
                 info_parts.append(' - '.join(chapter_part))
             

@@ -28,6 +28,7 @@
                     <tr>
                         <th style="width: 12%;">ID</th>
                         <th>Name</th>
+                        <th>Chinese name</th>
                         <th class="text-center" style="width: 14%;">Split default</th>
                         <th class="text-end" style="width: 12%;">Questions</th>
                         <th class="text-end" style="width: 10%;">Topics</th>
@@ -37,9 +38,10 @@
                 </thead>
                 <tbody>
                     {% for data in subjects_data %}
-                    <tr data-subject-id="{{ data.subject.id }}">
+                    <tr data-subject-id="{{ data.subject.id }}" data-name-zh="{{ data.subject.name_zh or '' }}">
                         <td><span class="badge bg-primary">{{ data.subject.id }}</span></td>
                         <td class="subject-name">{{ data.subject.name }}</td>
+                        <td class="subject-name-zh">{{ data.subject.name_zh or '' }}</td>
                         <td class="text-center">{{ 'Yes' if data.subject.split_parts_default else 'No' }}</td>
                         <td class="text-end">{{ data.question_count }}</td>
                         <td class="text-end">{{ data.topic_count }}</td>
@@ -88,6 +90,11 @@
                         <input type="text" class="form-control" id="addSubjectName"
                                placeholder="e.g. Mathematics Compulsory Part" required>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label">Chinese name <span class="text-muted">(optional)</span></label>
+                        <input type="text" class="form-control" id="addSubjectNameZh" maxlength="100"
+                               placeholder="例如：數學必修部分">
+                    </div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="addSplitPartsDefault">
                         <label class="form-check-label" for="addSplitPartsDefault">
@@ -124,6 +131,10 @@
                     <div class="mb-3">
                         <label class="form-label">Name</label>
                         <input type="text" class="form-control" id="editSubjectName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Chinese name <span class="text-muted">(optional)</span></label>
+                        <input type="text" class="form-control" id="editSubjectNameZh" maxlength="100">
                     </div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="editSplitPartsDefault">
@@ -234,6 +245,7 @@ function hideError(elId) {
 function showAddSubjectModal() {
     document.getElementById('addSubjectId').value = '';
     document.getElementById('addSubjectName').value = '';
+    document.getElementById('addSubjectNameZh').value = '';
     document.getElementById('addSplitPartsDefault').checked = false;
     hideError('addSubjectError');
     addSubjectModal.show();
@@ -252,6 +264,7 @@ function saveNewSubject() {
     const formData = new FormData();
     formData.append('id', id);
     formData.append('name', name);
+    formData.append('name_zh', document.getElementById('addSubjectNameZh').value.trim());
     if (document.getElementById('addSplitPartsDefault').checked) {
         formData.append('split_parts_default', '1');
     }
@@ -275,6 +288,8 @@ function showEditSubjectModal(id, name, splitParts) {
     document.getElementById('editSubjectId').value = id;
     document.getElementById('editSubjectIdDisplay').value = id;
     document.getElementById('editSubjectName').value = name;
+    const row = document.querySelector(`tr[data-subject-id="${id}"]`);
+    document.getElementById('editSubjectNameZh').value = row ? (row.dataset.nameZh || '') : '';
     document.getElementById('editSplitPartsDefault').checked = !!splitParts;
     hideError('editSubjectError');
     editSubjectModal.show();
@@ -292,6 +307,7 @@ function saveEditSubject() {
 
     const formData = new FormData();
     formData.append('name', name);
+    formData.append('name_zh', document.getElementById('editSubjectNameZh').value.trim());
     formData.append('split_parts_default', document.getElementById('editSplitPartsDefault').checked ? '1' : '0');
 
     fetch(`{{ url_for('admin.edit_subject', subject_id='__ID__') }}`.replace('__ID__', encodeURIComponent(id)), {

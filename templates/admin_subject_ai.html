@@ -40,12 +40,12 @@
 <div class="container-fluid mt-4" style="max-width: 1400px;">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-magic"></i> AI Tagging Tuning
-            <small class="text-muted fs-6">— {{ subject.id }} · {{ subject.name }}</small></h2>
+            <small class="text-muted fs-6">— {{ subject.id }} · {{ tax_name(subject) }}</small></h2>
         <div class="d-flex align-items-center gap-2">
             {% if admin_subjects|length > 1 %}
             <select class="form-select form-select-sm" style="width:auto" onchange="if (this.value) location.href = this.value;">
                 {% for s in admin_subjects %}
-                <option value="{{ url_for('subject_ai.page', subject_id=s.id) }}" {% if s.id == subject.id %}selected{% endif %}>{{ s.id }} — {{ s.name }}</option>
+                <option value="{{ url_for('subject_ai.page', subject_id=s.id) }}" {% if s.id == subject.id %}selected{% endif %}>{{ s.id }} — {{ tax_name(s) }}</option>
                 {% endfor %}
             </select>
             {% endif %}

@@ -138,6 +138,9 @@ class Subject(db.Model):
     
     id = db.Column(db.String(10), primary_key=True)  # e.g., 'MATC'
     name = db.Column(db.String(100), nullable=False)  # e.g., 'Mathematics Compulsory'
+    # Optional Traditional Chinese name; `name` stays the English one.
+    # Displayed through app.i18n.display_name / doc_name (ADR-017).
+    name_zh = db.Column(db.String(100), nullable=True)
     # Seeds the PDF-import "split into parts" checkbox. False for math-style
     # subjects (one image per numbered question). Wired in the import wizard
     # in a later phase; the column is additive and defaults off.
@@ -164,7 +167,8 @@ class Topic(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
-    name = db.Column(db.String(200), nullable=False)
+    name = db.Column(db.String(200), nullable=False)  # English (canonical)
+    name_zh = db.Column(db.String(200), nullable=True)  # Traditional Chinese, optional
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden topics (e.g. old syllabus)
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     # Optional one-line tagging hint shown to the auto-tag LLM next to the
@@ -186,6 +190,7 @@ class Subtopic(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     topic_id = db.Column(db.Integer, db.ForeignKey('topics.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    name_zh = db.Column(db.String(200), nullable=True)
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subtopics (e.g. textbook chapters)
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     description = db.Column(db.String(300), nullable=True)  # auto-tag hint
@@ -200,6 +205,7 @@ class Chapter(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    name_zh = db.Column(db.String(200), nullable=True)
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden chapters
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     description = db.Column(db.String(300), nullable=True)  # auto-tag hint
@@ -218,6 +224,7 @@ class Subchapter(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     chapter_id = db.Column(db.Integer, db.ForeignKey('chapters.id'), nullable=False, index=True)
     name = db.Column(db.String(200), nullable=False)
+    name_zh = db.Column(db.String(200), nullable=True)
     hidden = db.Column(db.Boolean, default=False, nullable=False)  # Hidden subchapters
     sort_order = db.Column(db.Integer, default=0, nullable=False)  # For custom ordering
     description = db.Column(db.String(300), nullable=True)  # auto-tag hint

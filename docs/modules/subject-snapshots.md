@@ -30,15 +30,15 @@ Payload v1 (`PAYLOAD_VERSION = 1`), compact JSON:
 
 ```json
 {"v": 1, "subject_id": "MATC",
- "topics":      [{"id": 1, "name": "...", "hidden": false, "sort_order": 1, "description": null}],
- "subtopics":   [{"id": 10, "topic_id": 1, "name": "...", "hidden": false, "sort_order": 1, "description": null}],
+ "topics":      [{"id": 1, "name": "...", "name_zh": null, "hidden": false, "sort_order": 1, "description": null}],
+ "subtopics":   [{"id": 10, "topic_id": 1, "name": "...", "name_zh": "...", "hidden": false, "sort_order": 1, "description": null}],
  "chapters":    [...], "subchapters": [{"id": 50, "chapter_id": 5, ...}],
  "question_columns": ["id","qid","major_topic_id","major_subtopic_id","chapter_id","subchapter_id",
                       "level","q_type","section","correct_percentage","marks","minor_topic_ids","subtopic_ids"],
  "questions": [[1891,"MATC_DSE_2012_P2_Q1",33,28,null,null,null,"MC","A",94,null,[],[]], ...]}
 ```
 
-`marks` was added on 2026-10-16; points taken before carry no `marks` column, so restoring one leaves live marks unchanged.
+`marks` was added on 2026-10-16; points taken before carry no `marks` column, so restoring one leaves live marks unchanged. Taxonomy `name_zh` (Chinese name, [i18n.md](i18n.md)) was added on 2026-10-17; older points have no `name_zh` key and leave live Chinese names alone. The preview's `rename` list covers a change to either name and shows `English 中文`.
 
 What is **not** stored: `answer`, `comment`, question `description`, `verified*`, asset rows / check state, files, hierarchy (`parent_id`, `part`), other subjects.
 
@@ -82,7 +82,7 @@ All `@login_required`. Prefix `/admin`.
 - **Pins do not survive subject delete.** `delete_for_subject` removes every row of that subject, pinned or not.
 - **Restore is subject-scoped and one transaction:** decode → read live → `gather_context` → `plan_restore` → abort on conflicts → `capture_state(live, 'before-restore')` → `apply_plan` (Core statements, every one filtered by `subject_id` / parent subject) → commit.
 - **Restore rules** (`plan_restore`, pure):
-  - Taxonomy rows keep their ids. Rows deleted since the point are **re-inserted with the original id**; rows in both are updated field by field (name, order, hidden, hint, parent).
+  - Taxonomy rows keep their ids. Rows deleted since the point are **re-inserted with the original id**; rows in both are updated field by field (name, Chinese name, order, hidden, hint, parent).
   - Rows created since the point are deleted only if nothing references them after the restore (this subject's questions, other subjects' questions via `external_refs`, or a surviving child row); otherwise they are kept and listed as `keep_newer`.
   - A point id that now belongs to another subject (or is orphaned) is a **conflict**; restore refuses (409) and writes nothing.
   - Questions in both: scalar fields set to the point's values; minor-topic / subtopic links replaced. Questions deleted since are skipped. Questions created since keep their tags.
@@ -105,7 +105,7 @@ None of its own. `capture_committed` opens a private `Session(db.engine)` so Aut
 
 ## Gotchas
 
-- **Forgetting the hook is the main failure mode.** Any new route (or service) that writes topics / subtopics / chapters / subchapters, or a question's `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, `marks`, minor topics or subtopics, must capture first. Grep for the writer list in `.cursor/rules/subject-snapshots.mdc`.
+- **Forgetting the hook is the main failure mode.** Any new route (or service) that writes topics / subtopics / chapters / subchapters (including `name_zh`), or a question's `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, `marks`, minor topics or subtopics, must capture first. Grep for the writer list in `.cursor/rules/subject-snapshots.mdc`.
 - **Do not use ORM attribute history to decide "tags changed".** Autoflush (any `Topic.query.get` mid-route) resets history; `question_tags_differ` compares values against the pre-read state instead.
 - **Writers that commit per row** (Auto Tag, any future SSE tagger) must use `capture_committed` before the first row, not `capture` — a pending point in `db.session` would be committed with the first row only by luck, and committing `db.session` early expires the objects the stream reuses.
 - **Cost:** `read_state` is 5 queries per subject (~20–130 ms for MATC). Fine per save; do not call it per row inside a loop — capture once per subject per request.

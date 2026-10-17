@@ -41,6 +41,7 @@ one or more super admins (users, subjects, settings, everything).
 - **QIDs, `Subject.id`, and asset filenames are stable public identifiers** embedded in the on-disk layout under `SOURCE_PATH`; never rename them casually. Grammar in [docs/reference/filename-convention.md](docs/reference/filename-convention.md).
 - **Asset versions are `EN / CH / BI / ENO / CHO`** (formerly "languages"); the canonical list lives in `app/utils.VERSIONS` and templates get it via a context processor. Do not hardcode the list ([ADR-006](docs/decisions/ADR-006-versions-replace-languages.md)).
 - **Dashboard Selection is independent of the Filter** ([ADR-008](docs/decisions/ADR-008-selection-independent-of-filter.md)).
+- **UI language is not the paper version.** UI text goes through `t()` / `OQB.t()` with keys in `app/translations/zh_Hant.json`; taxonomy names are shown through `i18n.display_name` (never raw `.name` in teacher-facing text) and matched through `i18n.build_name_index` (English, Chinese or both), while stored references stay ids ([ADR-017](docs/decisions/ADR-017-bilingual-ui-and-taxonomy.md)).
 - **Question Management works on one subject at a time**: no "All subjects" option; list APIs require `subject`, and every bulk route refuses ids outside `subject_id` (`_bulk_subject_guard`) — super admins included ([ADR-016](docs/decisions/ADR-016-single-subject-question-management.md)).
 - **Questions form a tree** (`parent_id`) rather than peer links. A part is its own `Question`. Shared grammar and render-plan expansion live in `app/hierarchy.py` ([ADR-009](docs/decisions/ADR-009-question-hierarchy-over-linking.md)). Text printed **between** parts is a transparent tree node `Q7~c` that parents the parts after it, never an extra page on the root ([ADR-015](docs/decisions/ADR-015-shared-blocks.md)).
 - **The PDF import agent is a fixed state machine, not a free-running agent**: strict-JSON LLM steps, code applies every fix, doubts go to an attention list, the human commits ([ADR-010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md)). It is the experimental full-auto path; the normal path is Detect questions + Detect parts.
@@ -74,6 +75,7 @@ one or more super admins (users, subjects, settings, everything).
 | DOC source format (Word COM, thumbnails) | cross-cutting | `app/word_com.py`, `app/doc_thumbnails.py` | [modules/doc-format.md](docs/modules/doc-format.md) |
 | MD source format (render, editor, pandoc) | cross-cutting | `app/md_render.py` | [modules/md-format.md](docs/modules/md-format.md) |
 | System Settings | `admin_bp` `/admin/settings` | `app/settings.py` | [core/06](docs/core/06-system-settings.md) |
+| Bilingual UI + taxonomy names (English / 繁體中文: language cookies, catalogue, `name_zh`, document heading language) | cross-cutting; `i18n_bp` `/i18n/<lang>.js` | `app/i18n.py`, `app/translations/zh_Hant.json`, `static/js/i18n.js` | [modules/i18n.md](docs/modules/i18n.md) |
 
 ## Key decisions (summaries; the why is in `docs/decisions/`)
 
@@ -95,6 +97,7 @@ one or more super admins (users, subjects, settings, everything).
 | [014](docs/decisions/ADR-014-crop-width-mode.md) | PDF import crop width is one select (`auto` = frame else uniform width, `uniform`, `model`) replacing the frame-snap and uniform-width checkboxes; one setting `PDF_IMPORT_WIDTH_MODE_DEFAULT` |
 | [015](docs/decisions/ADR-015-shared-blocks.md) | Text printed between parts = shared block `Q7~c`: child of the lettered parent, parent of the parts from the anchor on; parts keep their QIDs; always a stem; no schema change |
 | [016](docs/decisions/ADR-016-single-subject-question-management.md) | Question Management is scoped to one subject (no "All" option); list APIs require `subject`; bulk routes refuse ids outside `subject_id`; tree list paged by root; one bulk panel with typed-subject confirms |
+| [017](docs/decisions/ADR-017-bilingual-ui-and-taxonomy.md) | Bilingual UI = in-house JSON catalogue keyed by English text (`t()` / `OQB.t()`) + per-device cookies `oqb_lang` and `oqb_tax_lang`; taxonomy keeps `name` (English) and adds optional `name_zh`; documents use a Generate-page heading language (`auto` follows the top version); matching accepts either language |
 
 ## Documentation map
 

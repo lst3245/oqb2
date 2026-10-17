@@ -24,6 +24,7 @@ from app import db, md_render
 from app.models import Question, QuestionAsset
 from app import ai_prompts
 from app import llm_client
+from app.i18n import build_name_index, lookup_name
 
 logger = logging.getLogger(__name__)
 
@@ -1566,10 +1567,12 @@ def iter_solve_check(qs, versions, targets, formats, include_official_sol,
 
 def _map_tag_names(question, parsed, fields):
     """Map the LLM's returned NAMES back to the subject's Topic / Subtopic /
-    Chapter / Subchapter IDs (case-insensitive). Returns
-    ``(suggestions, display, unmatched)`` where ``suggestions`` holds resolved
-    IDs / scalar values keyed for write-back, ``display`` holds the resolved
-    names for the UI, and ``unmatched`` lists names that didn't resolve.
+    Chapter / Subchapter IDs (case-insensitive; English, Chinese or the
+    combined "English 中文" form all match — ``i18n.build_name_index``).
+    Returns ``(suggestions, display, unmatched)`` where ``suggestions`` holds
+    resolved IDs / scalar values keyed for write-back, ``display`` holds the
+    resolved (English) names for the UI and the correction log, and
+    ``unmatched`` lists names that didn't resolve.
     """
     from app.models import Topic, Subtopic, Chapter, Subchapter
 
@@ -1579,10 +1582,31 @@ def _map_tag_names(question, parsed, fields):
     unmatched = []
 
     topics = Topic.query.filter_by(subject_id=subject).all()
-    topic_by_name = {t.name.strip().lower(): t for t in topics}
+    topic_by_name = build_name_index(topics)
+    _lazy = {}
 
     def _subs(rel):
         return rel.all() if hasattr(rel, 'all') else list(rel)
+
+    def _subject_subtopics():
+        if 'subtopics' not in _lazy:
+            _lazy['subtopics'] = build_name_index(
+                Subtopic.query.join(Topic, Subtopic.topic_id == Topic.id)
+                .filter(Topic.subject_id == subject).all())
+        return _lazy['subtopics']
+
+    def _subject_chapters():
+        if 'chapters' not in _lazy:
+            _lazy['chapters'] = build_name_index(
+                Chapter.query.filter_by(subject_id=subject).all())
+        return _lazy['chapters']
+
+    def _subject_subchapters():
+        if 'subchapters' not in _lazy:
+            _lazy['subchapters'] = build_name_index(
+                Subchapter.query.join(Chapter, Subchapter.chapter_id == Chapter.id)
+                .filter(Chapter.subject_id == subject).all())
+        return _lazy['subchapters']
 
     # ---- scalars ----
     if 'q_type' in fields and parsed.get('q_type'):
@@ -1601,7 +1625,7 @@ def _map_tag_names(question, parsed, fields):
     # ---- major topic ----
     resolved_major_topic = None
     if 'major_topic' in fields and parsed.get('major_topic'):
-        t = topic_by_name.get(parsed['major_topic'].strip().lower())
+        t = lookup_name(topic_by_name, parsed['major_topic'])
         if t:
             resolved_major_topic = t
             suggestions['major_topic_id'] = t.id
@@ -1615,17 +1639,12 @@ def _map_tag_names(question, parsed, fields):
 
     # ---- major subtopic ----
     if 'major_subtopic' in fields and parsed.get('major_subtopic'):
-        low = parsed['major_subtopic'].strip().lower()
         found = None
         if eff_major_topic:
-            for s in _subs(eff_major_topic.subtopics):
-                if s.name.strip().lower() == low:
-                    found = s
-                    break
+            found = lookup_name(build_name_index(_subs(eff_major_topic.subtopics)),
+                                parsed['major_subtopic'])
         if not found:
-            found = (Subtopic.query.join(Topic, Subtopic.topic_id == Topic.id)
-                     .filter(Topic.subject_id == subject)
-                     .filter(db.func.lower(Subtopic.name) == low).first())
+            found = lookup_name(_subject_subtopics(), parsed['major_subtopic'])
         if found:
             suggestions['major_subtopic_id'] = found.id
             display['major_subtopic'] = found.name
@@ -1637,7 +1656,7 @@ def _map_tag_names(question, parsed, fields):
         ids = []
         names = []
         for nm in parsed['minor_topics']:
-            t = topic_by_name.get(nm.strip().lower())
+            t = lookup_name(topic_by_name, nm)
             if t:
                 if resolved_major_topic and t.id == resolved_major_topic.id:
                     continue
@@ -1658,17 +1677,11 @@ def _map_tag_names(question, parsed, fields):
         scope_topic_ids.update(suggestions.get('minor_topic_ids', []))
         ids = []
         names = []
+        scope_index = (build_name_index(
+            Subtopic.query.filter(Subtopic.topic_id.in_(scope_topic_ids)).all())
+            if scope_topic_ids else {})
         for nm in parsed['subtopics']:
-            low = nm.strip().lower()
-            found = None
-            if scope_topic_ids:
-                found = (Subtopic.query
-                         .filter(Subtopic.topic_id.in_(scope_topic_ids))
-                         .filter(db.func.lower(Subtopic.name) == low).first())
-            if not found:
-                found = (Subtopic.query.join(Topic, Subtopic.topic_id == Topic.id)
-                         .filter(Topic.subject_id == subject)
-                         .filter(db.func.lower(Subtopic.name) == low).first())
+            found = lookup_name(scope_index, nm) or lookup_name(_subject_subtopics(), nm)
             if found:
                 if found.id not in ids:
                     ids.append(found.id)
@@ -1682,9 +1695,7 @@ def _map_tag_names(question, parsed, fields):
     # ---- chapter ----
     resolved_chapter = None
     if 'chapter' in fields and parsed.get('chapter'):
-        low = parsed['chapter'].strip().lower()
-        c = (Chapter.query.filter_by(subject_id=subject)
-             .filter(db.func.lower(Chapter.name) == low).first())
+        c = lookup_name(_subject_chapters(), parsed['chapter'])
         if c:
             resolved_chapter = c
             suggestions['chapter_id'] = c.id
@@ -1698,17 +1709,12 @@ def _map_tag_names(question, parsed, fields):
 
     # ---- subchapter ----
     if 'subchapter' in fields and parsed.get('subchapter'):
-        low = parsed['subchapter'].strip().lower()
         found = None
         if eff_chapter:
-            for sc in _subs(eff_chapter.subchapters):
-                if sc.name.strip().lower() == low:
-                    found = sc
-                    break
+            found = lookup_name(build_name_index(_subs(eff_chapter.subchapters)),
+                                parsed['subchapter'])
         if not found:
-            found = (Subchapter.query.join(Chapter, Subchapter.chapter_id == Chapter.id)
-                     .filter(Chapter.subject_id == subject)
-                     .filter(db.func.lower(Subchapter.name) == low).first())
+            found = lookup_name(_subject_subchapters(), parsed['subchapter'])
         if found:
             suggestions['subchapter_id'] = found.id
             display['subchapter'] = found.name

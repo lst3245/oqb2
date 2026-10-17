@@ -32,6 +32,8 @@ def create_app():
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Please log in to access this page.'
+    from app.i18n import t as _i18n_t
+    login_manager.localize_callback = _i18n_t
     
     # User loader for Flask-Login
     from app.models import User
@@ -50,6 +52,7 @@ def create_app():
     from app.files import files_bp
     from app.subject_ai import subject_ai_bp
     from app.restore_points import restore_points_bp
+    from app.i18n import i18n_bp, template_globals as _i18n_globals
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -61,6 +64,11 @@ def create_app():
     app.register_blueprint(files_bp)
     app.register_blueprint(subject_ai_bp)
     app.register_blueprint(restore_points_bp)
+    app.register_blueprint(i18n_bp)
+
+    # UI language / taxonomy display mode (cookies) and the `t()` /
+    # `tax_name()` helpers for every template (docs/modules/i18n.md).
+    app.context_processor(_i18n_globals)
 
     # Expose the canonical asset-version list to every template (including
     # viewer.html, which does not extend base.html). Templates build their
@@ -461,6 +469,24 @@ def create_app():
                     if cols and 'description' not in cols:
                         conn.execute(text(
                             f"ALTER TABLE {_tbl} ADD COLUMN description VARCHAR(300) NULL"
+                        ))
+        except Exception:
+            pass  # pre-init DB / non-MySQL backend
+
+        # Optional Traditional Chinese names (ADR-017). `name` stays the
+        # English one; nothing is backfilled.
+        try:
+            from sqlalchemy import text
+            with db.engine.begin() as conn:
+                for _tbl, _len in (('subjects', 100), ('topics', 200), ('subtopics', 200),
+                                   ('chapters', 200), ('subchapters', 200)):
+                    cols = {row[0] for row in conn.execute(text(
+                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t"
+                    ), {'t': _tbl})}
+                    if cols and 'name_zh' not in cols:
+                        conn.execute(text(
+                            f"ALTER TABLE {_tbl} ADD COLUMN name_zh VARCHAR({_len}) NULL"
                         ))
         except Exception:
             pass  # pre-init DB / non-MySQL backend

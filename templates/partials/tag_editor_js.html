@@ -26,12 +26,12 @@ function loadTopicsForEditForm(subjectId) {
             // Render Major Topic searchable dropdown
             const majorOptionsDiv = document.getElementById('editMajorTopicOptions');
             majorOptionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorTopic(\'\', \'None\')">None</div>' +
-                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${t.name.toLowerCase()}" onclick="selectEditMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
+                topics.map(t => `<div class="searchable-option" data-value="${t.id}" data-name="${OQB.taxSearchKey(t)}" onclick="selectEditMajorTopic('${t.id}', '${t.name.replace(/'/g, "\\'")}')">${t.name}</div>`).join('');
             
             // Render Minor Topics multi-select checkboxes
             const minorCheckboxesDiv = document.getElementById('editMinorTopicsCheckboxes');
             minorCheckboxesDiv.innerHTML = topics.map(t => `
-                <div class="form-check" data-topic-name="${t.name.toLowerCase()}">
+                <div class="form-check" data-topic-name="${OQB.taxSearchKey(t)}">
                     <input class="form-check-input edit-minor-topic-checkbox" type="checkbox" 
                            value="${t.id}" id="editMinorTopic${t.id}" onchange="onEditMinorTopicsChange()">
                     <label class="form-check-label" for="editMinorTopic${t.id}">${t.name}</label>
@@ -138,7 +138,7 @@ function loadMajorSubtopicsSearchable(topicId, selectedSubtopicId) {
             
             const optionsDiv = document.getElementById('editMajorSubtopicOptions');
             optionsDiv.innerHTML = '<div class="searchable-option" data-value="" onclick="selectEditMajorSubtopic(\'\', \'None\')">None</div>' +
-                subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${s.name.toLowerCase()}" onclick="selectEditMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
+                subtopics.map(s => `<div class="searchable-option ${s.hidden ? 'opacity-75' : ''}" data-value="${s.id}" data-name="${OQB.taxSearchKey(s)}" onclick="selectEditMajorSubtopic('${s.id}', '${s.name.replace(/'/g, "\\'")}')">${s.name}${s.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : ''}</div>`).join('');
             
             if (selectedSubtopicId) {
                 const subtopic = subtopics.find(s => s.id == selectedSubtopicId);
@@ -254,7 +254,7 @@ function loadSubtopicsSearchable(topicIds, selectedSubtopicIds) {
         .then(subtopics => {
             const checkboxesDiv = document.getElementById('editSubtopicsCheckboxes');
             checkboxesDiv.innerHTML = subtopics.map(s => `
-                <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-name="${s.name.toLowerCase()}">
+                <div class="form-check ${s.hidden ? 'opacity-75' : ''}" data-subtopic-name="${OQB.taxSearchKey(s)}">
                     <input class="form-check-input edit-subtopic-checkbox" type="checkbox" 
                            value="${s.id}" id="editSubtopic${s.id}" onchange="onEditSubtopicsChange()"
                            ${selectedSubtopicIds.includes(s.id) ? 'checked' : ''}>
@@ -367,7 +367,7 @@ function renderEditChapterOptions(chapters, selectedChapterId) {
     let html = '<div class="searchable-option" data-value="" data-name="" onclick="selectEditChapter(\'\', \'None\')">None</div>';
     chapters.forEach(c => {
         const isSelected = c.id == selectedChapterId;
-        html += `<div class="searchable-option ${isSelected ? 'active' : ''}" data-value="${c.id}" data-name="${c.name.toLowerCase()}" onclick="selectEditChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
+        html += `<div class="searchable-option ${isSelected ? 'active' : ''}" data-value="${c.id}" data-name="${OQB.taxSearchKey(c)}" onclick="selectEditChapter('${c.id}', '${c.name.replace(/'/g, "\\'")}')">
             ${c.name}
         </div>`;
     });
@@ -447,7 +447,7 @@ function renderEditSubchapterOptions(subchapters, selectedSubchapterId) {
     subchapters.forEach(sc => {
         const isSelected = sc.id == selectedSubchapterId;
         const hiddenIndicator = sc.hidden ? ' <i class="bi bi-eye-slash text-muted"></i>' : '';
-        html += `<div class="searchable-option ${isSelected ? 'active' : ''}" data-value="${sc.id}" data-name="${sc.name.toLowerCase()}" onclick="selectEditSubchapter('${sc.id}', '${sc.name.replace(/'/g, "\\'")}')">
+        html += `<div class="searchable-option ${isSelected ? 'active' : ''}" data-value="${sc.id}" data-name="${OQB.taxSearchKey(sc)}" onclick="selectEditSubchapter('${sc.id}', '${sc.name.replace(/'/g, "\\'")}')">
             ${sc.name}${hiddenIndicator}
         </div>`;
     });

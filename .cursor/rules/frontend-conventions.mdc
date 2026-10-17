@@ -18,6 +18,7 @@ Server-rendered Jinja2 + Bootstrap 5.3 + HTMX 1.9; no bundler, no SPA (ADR-001).
 - Gate admin UI on `window.OQB_IS_ADMIN` and AI UI on `window.OQB_AI_TOOLS_ENABLED` — cosmetic only; the server decorators are the gate.
 - SSE consumers: `new EventSource(url)`, parse `{type, message, current, total}`, close on `type === 'done'`.
 - New localStorage keys are prefixed `oqb_` and listed in `docs/frontend/conventions.md`.
+- Teacher-facing text: `{{ t('…') }}` / `OQB.t('…', {params})` with one plain literal + a `zh_Hant.json` entry; taxonomy names via `tax_name` / `OQB.taxName`, search via `OQB.taxSearchKey`. Details in `i18n.mdc`.
 
 ## Shared pieces (do not re-implement)
 - `base.html` helpers: `oqbTypesetMath`, `oqbRenderMarkdownInto`, `oqbLoadMarkdownPreviewCards`, `oqbPollDocThumbnails`, `oqbRerenderThumb`, `_oqbBuildThumbHtml`, `oqbParseUtc`, `oqbFormatLocalTime`.

@@ -87,7 +87,7 @@
                             <tbody>
                                 {% for subject in subjects %}
                                 <tr>
-                                    <td>{{ subject.name }} ({{ subject.id }})</td>
+                                    <td>{{ tax_name(subject) }} ({{ subject.id }})</td>
                                     <td>
                                         <select class="form-select form-select-sm permission-select" 
                                                 onchange="updatePermission({{ data.user.id }}, '{{ subject.id }}', this.value)"

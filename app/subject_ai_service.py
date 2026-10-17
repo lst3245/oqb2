@@ -31,6 +31,7 @@ from sqlalchemy import func
 from app import db
 from app import ai_prompts
 from app import subject_snapshot
+from app.i18n import bilingual
 from app.models import (Question, Topic, Subtopic, Chapter, Subchapter,
                         SubjectPromptNote, TagCorrection)
 
@@ -129,7 +130,8 @@ def taxonomy_tree(subject_id):
     """Nested dict of the subject's taxonomy with descriptions, for the
     hints editor."""
     def _node(n, kind):
-        return {'id': n.id, 'kind': kind, 'name': n.name,
+        return {'id': n.id, 'kind': kind, 'name': bilingual(n.name, n.name_zh, 'both'),
+                'name_en': n.name, 'name_zh': n.name_zh,
                 'description': n.description or '',
                 'hidden': bool(getattr(n, 'hidden', False))}
 

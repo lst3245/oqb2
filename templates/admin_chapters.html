@@ -18,6 +18,7 @@
         margin-right: 10px;
     }
     .card-header.tax-row .drag-handle { color: rgba(255, 255, 255, .75); }
+    .card-header.tax-row .tax-name-zh { color: rgba(255, 255, 255, .8); }
 </style>
 {% endblock %}
 
@@ -25,7 +26,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-book"></i> Manage Chapters &amp; Subchapters
-            {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ subject.name }}</small>{% endif %}
+            {% if subject %}<small class="text-muted fs-6">— {{ subject.id }} · {{ tax_name(subject) }}</small>{% endif %}
         </h2>
         <div class="d-flex align-items-center gap-2">
             {% with endpoint='admin.chapters' %}
@@ -46,6 +47,7 @@
     </div>
     <p class="text-muted mt-1 mb-0"><i class="bi bi-info-circle"></i> One subject at a time.
         Drag <i class="bi bi-grip-vertical"></i> (or use the arrows) to reorder; double-click a name to rename it.
+        The grey name beside it is the optional Chinese name (double-click or <strong>中</strong> to edit; blank clears it).
         Hidden chapters / subchapters stay taggable but drop out of the dashboard filter and AI tag hints.</p>
     <hr>
 
@@ -54,7 +56,7 @@
     {% else %}
     <div class="card mb-4">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-folder"></i> {{ subject.name }} ({{ subject.id }})</h5>
+            <h5 class="mb-0"><i class="bi bi-folder"></i> {{ tax_name(subject) }} ({{ subject.id }})</h5>
             <button class="btn btn-sm btn-success" onclick="showAddChapterModal()">
                 <i class="bi bi-plus-circle"></i> Add Chapter
             </button>
@@ -74,7 +76,7 @@
                             </div>
                             <h6 class="mb-0">
                                 <i class="bi bi-book"></i>
-                                <span class="tax-name" title="Double-click to rename">{{ chapter.name }}</span>
+                                <span class="tax-name" title="Double-click to rename">{{ chapter.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="Chinese name — double-click to edit" data-placeholder="+ 中文名稱">{{ chapter.name_zh or '' }}</span>
                                 <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not chapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
                             </h6>
                         </div>
@@ -83,6 +85,7 @@
                                 <i class="bi bi-{{ 'eye' if chapter.hidden else 'eye-slash' }}"></i>
                             </button>
                             <button class="btn btn-sm btn-light" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-light" data-act="rename-zh" title="Edit Chinese name">中</button>
                             <button class="btn btn-sm btn-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
                             <button class="btn btn-sm btn-success" data-act="add-child"><i class="bi bi-plus"></i> Subchapter</button>
                         </div>
@@ -101,7 +104,7 @@
                                         </div>
                                         <span>
                                             <i class="bi bi-bookmark"></i>
-                                            <span class="tax-name" title="Double-click to rename">{{ subchapter.name }}</span>
+                                            <span class="tax-name" title="Double-click to rename">{{ subchapter.name }}</span><span class="tax-name-zh" lang="zh-Hant" title="Chinese name — double-click to edit" data-placeholder="+ 中文名稱">{{ subchapter.name_zh or '' }}</span>
                                             <span class="tax-hidden-badge badge bg-secondary ms-1 {% if not subchapter.hidden %}d-none{% endif %}"><i class="bi bi-eye-slash"></i> Hidden</span>
                                         </span>
                                     </div>
@@ -110,6 +113,7 @@
                                             <i class="bi bi-{{ 'eye' if subchapter.hidden else 'eye-slash' }}"></i>
                                         </button>
                                         <button class="btn btn-sm btn-outline-primary" data-act="rename" title="Rename"><i class="bi bi-pencil"></i></button>
+                                        <button class="btn btn-sm btn-outline-primary" data-act="rename-zh" title="Edit Chinese name">中</button>
                                         <button class="btn btn-sm btn-outline-danger" data-act="delete" title="Delete"><i class="bi bi-trash"></i></button>
                                     </div>
                                 </div>
@@ -138,8 +142,12 @@
             </div>
             <div class="modal-body">
                 <form id="chapterForm" onsubmit="event.preventDefault(); saveChapter();">
-                    <label class="form-label" for="chapterName">Chapter Name</label>
-                    <input type="text" class="form-control" id="chapterName" required>
+                    <div class="mb-3">
+                        <label class="form-label" for="chapterName">Chapter Name</label>
+                        <input type="text" class="form-control" id="chapterName" required>
+                    </div>
+                    <label class="form-label" for="chapterNameZh">Chinese name <span class="text-muted">(optional)</span></label>
+                    <input type="text" class="form-control" id="chapterNameZh" maxlength="200" lang="zh-Hant">
                 </form>
             </div>
             <div class="modal-footer">
@@ -164,6 +172,10 @@
                     <div class="mb-3">
                         <label class="form-label" for="subchapterName">Subchapter Name</label>
                         <input type="text" class="form-control" id="subchapterName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="subchapterNameZh">Chinese name <span class="text-muted">(optional)</span></label>
+                        <input type="text" class="form-control" id="subchapterNameZh" maxlength="200" lang="zh-Hant">
                     </div>
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" role="switch" id="subchapterHidden">
@@ -225,13 +237,18 @@ function postForm(url, fields) {
 
 function showAddChapterModal() {
     document.getElementById('chapterName').value = '';
+    document.getElementById('chapterNameZh').value = '';
     chapterModal.show();
 }
 
 function saveChapter() {
     const name = document.getElementById('chapterName').value.trim();
     if (!name) return;
-    postForm('{{ url_for("admin.add_chapter") }}', { name: name, subject_id: {{ (subject.id if subject else '')|tojson }} })
+    postForm('{{ url_for("admin.add_chapter") }}', {
+        name: name,
+        name_zh: document.getElementById('chapterNameZh').value.trim(),
+        subject_id: {{ (subject.id if subject else '')|tojson }},
+    })
         .then(() => location.reload())
         .catch(err => alert('Error adding chapter: ' + err.message));
 }
@@ -240,6 +257,7 @@ function showAddSubchapterModal(chapterId, chapterName) {
     document.getElementById('subchapterChapterId').value = chapterId;
     document.getElementById('subchapterParentName').textContent = '— ' + chapterName;
     document.getElementById('subchapterName').value = '';
+    document.getElementById('subchapterNameZh').value = '';
     document.getElementById('subchapterHidden').checked = false;
     subchapterModal.show();
 }
@@ -249,6 +267,7 @@ function saveSubchapter() {
     if (!name) return;
     postForm('{{ url_for("admin.add_subchapter") }}', {
         name: name,
+        name_zh: document.getElementById('subchapterNameZh').value.trim(),
         chapter_id: document.getElementById('subchapterChapterId').value,
         hidden: document.getElementById('subchapterHidden').checked ? '1' : '0',
     })

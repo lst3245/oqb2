@@ -5,7 +5,7 @@
     {% for s in subjects %}
     <option value="{{ url_for(endpoint, subject_id=s.id) }}"
             {% if subject and s.id == subject.id %}selected{% endif %}>
-        {{ s.id }} — {{ s.name }}
+        {{ s.id }} — {{ tax_name(s) }}
     </option>
     {% endfor %}
 </select>

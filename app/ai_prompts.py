@@ -965,38 +965,18 @@ def build_tag_taxonomy(subject_id, fields):
     if fields & _TAG_TOPIC_FIELDS:
         topics = (Topic.query.filter_by(subject_id=subject_id)
                   .order_by(Topic.sort_order).all())
-        lines = ['TOPICS (each topic, then its subtopics indented; text after '
-                 '\u2014 is the teachers\' hint):']
-        if not topics:
-            lines.append('  (none defined)')
-        for t in topics:
-            if getattr(t, 'hidden', False):
-                continue
-            lines.append(f'- {_taxonomy_line(t)}')
-            subs = t.subtopics.all() if hasattr(t.subtopics, 'all') else list(t.subtopics)
-            for s in subs:
-                if getattr(s, 'hidden', False):
-                    continue
-                lines.append(f'    * {_taxonomy_line(s)}')
-        blocks.append('\n'.join(lines))
+        blocks.append(_taxonomy_block(
+            'TOPICS (each topic, then its subtopics indented; text after '
+            '\u2014 is the teachers\' hint{alias}):',
+            topics, 'subtopics'))
 
     if fields & _TAG_CHAPTER_FIELDS:
         chapters = (Chapter.query.filter_by(subject_id=subject_id)
                     .order_by(Chapter.sort_order).all())
-        lines = ['CHAPTERS (each chapter, then its subchapters indented; text '
-                 'after \u2014 is the teachers\' hint):']
-        if not chapters:
-            lines.append('  (none defined)')
-        for c in chapters:
-            if getattr(c, 'hidden', False):
-                continue
-            lines.append(f'- {_taxonomy_line(c)}')
-            subs = c.subchapters.all() if hasattr(c.subchapters, 'all') else list(c.subchapters)
-            for sc in subs:
-                if getattr(sc, 'hidden', False):
-                    continue
-                lines.append(f'    * {_taxonomy_line(sc)}')
-        blocks.append('\n'.join(lines))
+        blocks.append(_taxonomy_block(
+            'CHAPTERS (each chapter, then its subchapters indented; text '
+            'after \u2014 is the teachers\' hint{alias}):',
+            chapters, 'subchapters'))
 
     if 'q_type' in fields:
         blocks.append('QUESTION TYPES: MC (multiple choice), CQ (conventional question)')
@@ -1008,10 +988,47 @@ def build_tag_taxonomy(subject_id, fields):
     return '\n\n'.join(blocks) if blocks else '(no taxonomy required)'
 
 
+# Added to a TOPICS / CHAPTERS header only when a visible node carries a
+# Chinese name, so subjects without one keep the exact old prompt.
+TAXONOMY_ALIAS_NOTE = ('; [\u4e2d: \u2026] is the Chinese name of the same item '
+                       '\u2014 answer with the English name')
+
+
+def _taxonomy_block(header, parents, child_attr):
+    """Header + visible parents / children for one taxonomy section."""
+    lines = []
+    has_zh = False
+    for p in parents:
+        if getattr(p, 'hidden', False):
+            continue
+        has_zh = has_zh or _has_zh(p)
+        lines.append(f'- {_taxonomy_line(p)}')
+        rel = getattr(p, child_attr)
+        kids = rel.all() if hasattr(rel, 'all') else list(rel)
+        for c in kids:
+            if getattr(c, 'hidden', False):
+                continue
+            has_zh = has_zh or _has_zh(c)
+            lines.append(f'    * {_taxonomy_line(c)}')
+    if not parents:
+        lines.append('  (none defined)')
+    head = header.format(alias=TAXONOMY_ALIAS_NOTE if has_zh else '')
+    return '\n'.join([head] + lines)
+
+
+def _has_zh(node):
+    zh = (getattr(node, 'name_zh', None) or '').strip()
+    return bool(zh) and zh != node.name
+
+
 def _taxonomy_line(node):
-    """``Name`` or ``Name — hint`` for one taxonomy node."""
+    """``Name``, ``Name [中: 名稱]`` and/or ``... — hint`` for one taxonomy
+    node. ``ai_tools._map_tag_names`` accepts either name back."""
+    name = node.name
+    if _has_zh(node):
+        name = f'{name} [\u4e2d: {node.name_zh.strip()}]'
     desc = ' '.join((getattr(node, 'description', None) or '').split())
-    return f'{node.name} \u2014 {desc}' if desc else node.name
+    return f'{name} \u2014 {desc}' if desc else name
 
 
 def build_tag_user_text(subject_name, fields, taxonomy, endpoint_id=None,

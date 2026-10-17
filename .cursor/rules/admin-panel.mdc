@@ -9,7 +9,7 @@ alwaysApply: false
 `app/admin.py` is ~7.3k lines: grep `@admin_bp.route('<path>'` for the function you need; never read it whole. Routes keyed by `question_id` must check the question's subject explicitly (`_require_md_admin` pattern) — the subject decorators pass through without a `subject_id`.
 
 ## Panel invariants
-- `Subject.id` is immutable; only `name` is editable. Delete is 400 while any question references it; cleanup order SavedQuestionSet → SavedFilter (JSON `subject` scan) → UserSubjectPermission → `subject_restore_points` → Subject (topics/chapters cascade). Disk is untouched.
+- `Subject.id` is immutable; only `name` and `name_zh` are editable. Delete is 400 while any question references it; cleanup order SavedQuestionSet → SavedFilter (JSON `subject` scan) → UserSubjectPermission → `subject_restore_points` → Subject (topics/chapters cascade). Disk is untouched.
 - Users: `validate_username` (`^[A-Za-z0-9._-]{1,80}$`, reserved names); rename moves `User/<old>` → `User/<new>` best-effort; cannot rename, demote, or delete yourself. Your own edit sets the password only. Permissions payload `{"permissions": {sid: role|''|null}}` merges per key.
 - Health: `/admin/health/sync?mode=dry_run|delete` (dry run default; 24 h grace for asset-less questions); `/health/stats` is DB-only. Anomaly hand-off to lists via `?qids=` or `?qids_token=<localStorage key>` (consumed once).
 - `/admin/ingestion` is a 302 to `/admin/import`; `admin_ingestion.html` no longer exists.
@@ -19,6 +19,7 @@ alwaysApply: false
 - `hidden` exists on all four taxonomy levels. Hiding a parent never rewrites its children's flags. Every tag editor fetch (`get_topics` / `get_chapters` / subtopics / subchapters) passes `include_hidden=1`; only the dashboard filter sidebar honours the eye switches.
 - `Subject.topic_number_prefix` (default on) / `subtopic_number_prefix` (default off) only prefix the dashboard filter label as plain text (`01 Name`). Edited via `POST /admin/subjects/<id>/number-prefixes` from the Topics page. Not a restore-point field, and not the Generate-page numbering option.
 - Per-row taxonomy edit / toggle-hidden routes call `_require_subject_admin(<row subject>)`; add the same check to any new per-row taxonomy route.
+- Every taxonomy level has `name` (English, match key) + optional `name_zh`. Edit routes take either or both (`_taxonomy_name_updates`, validated **before** the restore point); add routes read `_form_name_zh()`; JSON replies use `_taxonomy_json`. Teacher-facing names go through `i18n.display_name`; CSV / AI matching through `i18n.build_name_index`. CSV imports never rename the English name. See `i18n.mdc`.
 - **Restore points:** every taxonomy, tag-form, Bulk Edit, CSV import and Auto Tag write calls `subject_snapshot.capture*` **before** its first mutation. New or edited writers must keep that order — see `subject-snapshots.mdc`. `delete_subject` also calls `subject_snapshot.delete_for_subject`.
 
 ## Question Management invariants
