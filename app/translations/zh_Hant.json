@@ -3940,6 +3940,8 @@
   "Accompanies the directory-tree sample. {{subject}} is the chosen subject, {{versions}} the allowed version list, {{tree}} a sample of relative file paths. Must elicit a single JSON object of folder-level defaults.": "附在目錄樹樣本之後。{{subject}} 是所選科目，{{versions}} 是允許的版本清單，{{tree}} 是相對檔案路徑的樣本。必須令模型只回覆一個 JSON 物件，內容為資料夾層級的預設值。",
   "SMS sign-in": "SMS 登入",
   "Allow signing in from the school SMS (/sso/sms) and count SMS-sourced levels. Also needs PUBLIC_ORIGIN in .env and a pinned key for the live issuer. Off: the SMS routes answer 404 and only local grants count.": "允許從學校 SMS 登入（/sso/sms）並計算來自 SMS 的權限等級。另需在 .env 設定 PUBLIC_ORIGIN，並為正式簽發者釘選金鑰。關閉時：SMS 路由回應 404，只計算本地授權。",
+  "Show Sign in with SMS on the login page": "在登入頁顯示「以 SMS 登入」",
+  "Show the Sign in with SMS button on the OQB login page. Off: staff open OQB from inside the SMS instead. Opening OQB from the SMS (/sso/sms), linking and account creation work either way.": "在 OQB 登入頁顯示「以 SMS 登入」按鈕。關閉時，教職員須從 SMS 內開啟 OQB。從 SMS 開啟 OQB（/sso/sms）、帳戶連結及自動建立帳戶均不受影響。",
   "Create accounts for unlinked SMS staff": "為未連結的 SMS 教職員建立帳戶",
   "When an SMS user with no linked OQB account signs in from the live SMS, create a password-less OQB account for them. Turn on only after existing teachers are linked. Never applies to the workshop SMS.": "當沒有已連結 OQB 帳戶的 SMS 用戶從正式 SMS 登入時，為其建立一個沒有密碼的 OQB 帳戶。請在現有教師完成連結後才開啟。永不適用於工作坊 SMS。",
   "Accept the SMS directory feed": "接收 SMS 名冊推送",

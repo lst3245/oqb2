@@ -55,7 +55,7 @@ Key: `[done]` implemented, tested (where tests exist), documented · `[partial]`
 
 | Page | URL | Template | Nav location | State |
 |---|---|---|---|---|
-| Login / Register | `/login`, `/register` | `login.html`, `register.html` | — | `[done]` (login shows "Sign in with SMS" when SMS sign-in is on, and "Remember me" when `PASSWORD_REMEMBER_DAYS` > 0) |
+| Login / Register | `/login`, `/register` | `login.html`, `register.html` | — | `[done]` (login shows "Sign in with SMS" when SMS sign-in is on and `SMS_LOGIN_BUTTON_ENABLED` is on, default off; "Remember me" when `PASSWORD_REMEMBER_DAYS` > 0) |
 | Logout (POST from the navbar button; GET shows a confirmation) | `/logout` | `logout_confirm.html` (GET only) | Navbar **Logout** button | `[done]` on `feature/sms-sso` |
 | CSRF refusal page | any refused POST (HTML) | `csrf_failed.html` | — | `[done]` on `feature/sms-sso` |
 | SMS sign-in landing / failure | `/sso/sms`, `/sso/sms/failed` | `sso/landing.html`, `sso/failed.html` (standalone) | — (reached from SMS) | `[done]` on `feature/sms-sso`, off by default |

@@ -566,6 +566,11 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='SMS sign-in',
         help='Allow signing in from the school SMS (/sso/sms) and count SMS-sourced levels. Also needs PUBLIC_ORIGIN in .env and a pinned key for the live issuer. Off: the SMS routes answer 404 and only local grants count.',
     )),
+    ('SMS_LOGIN_BUTTON_ENABLED', _spec(
+        'SMS_LOGIN_BUTTON_ENABLED', 'bool', group='SMS sign-in',
+        label='Show Sign in with SMS on the login page',
+        help='Show the Sign in with SMS button on the OQB login page. Off: staff open OQB from inside the SMS instead. Opening OQB from the SMS (/sso/sms), linking and account creation work either way.',
+    )),
     ('SMS_JIT_ENABLED', _spec(
         'SMS_JIT_ENABLED', 'bool', group='SMS sign-in',
         label='Create accounts for unlinked SMS staff',

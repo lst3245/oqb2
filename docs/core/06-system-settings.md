@@ -83,6 +83,7 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | Toolbox | `TOOLBOX_SESSION_RETENTION_HOURS` | int 1–720 | 48 | how long PDF Tool staging sessions stay restorable before purge (no `Config` attribute; registry default only) |
 | Markup | `MARKUP_NORMALIZED_MAX_DIM` | int 400–8000 | 2400 | longest-edge world units for imported images |
 | SMS sign-in | `SMS_SSO_ENABLED` | bool | False | master switch for `/sso/*` (404 when off) and for counting SMS-sourced levels; also needs `PUBLIC_ORIGIN` and a pinned key on the primary issuer ([../modules/sms-sso.md](../modules/sms-sso.md)) |
+| SMS sign-in | `SMS_LOGIN_BUTTON_ENABLED` | bool | False | show **Sign in with SMS** on `/login`. Off: staff open OQB from the SMS; `/sso/sms`, linking and account creation are unchanged |
 | SMS sign-in | `SMS_JIT_ENABLED` | bool | False | create a password-less account for an unlinked SMS user from the **primary** issuer (also needs the trust entry's `allow_jit`); never for non-primary issuers |
 | SMS sign-in | `SMS_FEED_ENABLED` | bool | False | accept the SMS directory snapshot at `POST /api/sms/directory` (404 when off); independent of `SMS_SSO_ENABLED`, so the roster can arrive before sign-in is on |
 | SMS sign-in | `SMS_FEED_BRAKE_MIN` | int 1–10000 | 5 | feed safety brake: a snapshot that would disable more than max(this, pct below) linked accounts is held (202) for a super admin |

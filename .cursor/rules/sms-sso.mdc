@@ -10,7 +10,7 @@ Contract: `OQB_CONTRACT_v1.2.md` + addenda 1–3. Branch `feature/sms-sso`; all 
 
 ## Invariants
 
-- **Fail closed.** `SMS_SCHEMA_READY` false → `/sso/*` 503 and no SMS levels. `SMS_SSO_ENABLED` off or `PUBLIC_ORIGIN` empty → `/sso/*` 404. Never let an SSO error break password login.
+- **Fail closed.** `SMS_SCHEMA_READY` false → `/sso/*` 503 and no SMS levels. `SMS_SSO_ENABLED` off or `PUBLIC_ORIGIN` empty → `/sso/*` 404. Never let an SSO error break password login. `SMS_LOGIN_BUTTON_ENABLED` (default off) only hides the `/login` button; `/sso/sms`, pending link, JIT and the feed ignore it.
 - **The verifier is pure** (`app/sms_verify.py`): no DB, no Flask, `now` injected. Keep the check order and reason codes exactly as the contract (shape → issuer → alg/kid → signature → aud/purpose/ver → not_yet_valid → expired → bad_lifetime → types → non-primary allowlist). The 31 fixture cases pin it.
 - **Clock:** read time through `app/sms_clock.now()`; tests freeze it with `sms_clock.frozen(ts)` (process-wide).
 - **Level names** (`none/viewer/user/admin`) are spelled only in `app/sms_levels.py`; `test_sms_levels` scans for literals elsewhere (a line that means something else, e.g. link method `'admin'`, carries `# not a level`). Display labels: Viewer / User / Admin.
