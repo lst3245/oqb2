@@ -72,9 +72,13 @@ def login():
 
 def _render_login(nxt):
     from app import sso
-    return render_template('login.html', login_next=nxt, sms_signin_url=sso.signin_url(),
-                           sso_link_pending=bool(session.get(SSO_LINK_KEY)),
-                           remember_days=web_security.remember_days())
+    # The button is the only OQB-started SMS sign-in. /sso/sms, linking and JIT ignore this flag.
+    show_sms_button = bool(current_app.config.get('SMS_LOGIN_BUTTON_ENABLED'))
+    return render_template(
+        'login.html', login_next=nxt,
+        sms_signin_url=sso.signin_url() if show_sms_button else None,
+        sso_link_pending=bool(session.get(SSO_LINK_KEY)),
+        remember_days=web_security.remember_days())
 
 
 def render_login():

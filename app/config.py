@@ -72,6 +72,8 @@ class Config:
     PROXY_FIX_HOPS = int(os.getenv('PROXY_FIX_HOPS', '0') or 0)
     # [tunable] Master switch for /sso/* and SMS-sourced levels.
     SMS_SSO_ENABLED = os.getenv('SMS_SSO_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # [tunable] Show "Sign in with SMS" on /login. Off: staff open OQB from the SMS.
+    SMS_LOGIN_BUTTON_ENABLED = os.getenv('SMS_LOGIN_BUTTON_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
     # [tunable] Create accounts for unlinked SMS staff (primary issuer only).
     SMS_JIT_ENABLED = os.getenv('SMS_JIT_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
     # [tunable] Accept directory snapshots on POST /api/sms/directory.

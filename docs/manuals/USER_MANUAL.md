@@ -38,7 +38,7 @@ If a page says **"Your session has expired. Reload the page and try again."**, r
 
 ### Signing in from the school SMS
 
-When the school has switched SMS sign-in on, you can open the Question Bank from the SMS, or press **Sign in with SMS** on the login page. Your subject access then follows your SMS role and subjects. An SMS sign-in lasts until you close the browser, for at most 12 hours, and ends after 2 hours without activity; there is no "remember me". Open the Question Bank from the SMS again to continue.
+When the school has switched SMS sign-in on, open the Question Bank from the SMS. If the school also shows **Sign in with SMS** on the login page, you can press that instead. Your subject access then follows your SMS role and subjects. An SMS sign-in lasts until you close the browser, for at most 12 hours, and ends after 2 hours without activity; there is no "remember me". Open the Question Bank from the SMS again to continue.
 
 The first time, OQB may not know which account is yours. It then asks you to **sign in with your OQB username and password once** and press **Link** to connect the two. If you do not have an OQB account, ask a Question Bank administrator. You can also press **Cancel** and nothing is linked. Super admin accounts cannot be linked and always sign in with their password.
 

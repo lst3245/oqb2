@@ -15,7 +15,7 @@ Screens used below (all super admin only): **Overview** `/admin/sms/`, **Subject
 2. Install the new dependency into the **live interpreter** (the one that runs `run.py`): `python -m pip install "PyJWT>=2.8,<3"` (from `requirements.txt`).
 3. Deploy by merging while the server is stopped, then start it once and check the log for `sso_schema` errors. If `SMS_SCHEMA_READY` is false (log line `sso_schema patches failed` / `creating … failed`), SMS sign-in stays off (503) and password login keeps working. Fix the cause before going further.
 4. **Everyone is signed out once, at the first start.** The cookies are renamed (`session` → `oqb_session`, `remember_token` → `oqb_remember`) and session ids carry the session version. Announce it before the deploy ("you will need to sign in again; tick *Remember me* on your own computer to stay signed in"). Remember-me is now opt-in, lasts at most 30 days, and is never offered to SMS-linked accounts; password sessions without it end after 12 hours or 2 hours idle.
-5. Set `CSRF_MODE=report` in `.env` **before** the first start (the code default is `enforce`, and System Settings can only be changed once the server is up) - see section 2a. Leave `SMS_SSO_ENABLED`, `SMS_FEED_ENABLED` and `SMS_JIT_ENABLED` unset (off) for the first start.
+5. Set `CSRF_MODE=report` in `.env` **before** the first start (the code default is `enforce`, and System Settings can only be changed once the server is up) - see section 2a. Leave `SMS_SSO_ENABLED`, `SMS_LOGIN_BUTTON_ENABLED`, `SMS_FEED_ENABLED` and `SMS_JIT_ENABLED` unset (off) for the first start.
 
 ## 1. Host prerequisites (contract section 13)
 
@@ -38,6 +38,7 @@ Screens used below (all super admin only): **Overview** `/admin/sms/`, **Subject
 | `PASSWORD_REMEMBER_DAYS` | System Settings → Sign-in and sessions | 30 (0 hides "Remember me") |
 | `SMS_EMBED_ENABLED` | System Settings → SMS sign-in | **off** unless SMS is to show OQB inside its own page (needs HTTPS; cookies become `SameSite=None; Secure; Partitioned`) |
 | `SMS_SSO_ENABLED` | System Settings → SMS sign-in | on, only after the steps below |
+| `SMS_LOGIN_BUTTON_ENABLED` | System Settings → SMS sign-in | **off** unless the OQB login page should show **Sign in with SMS** (staff can always open OQB from inside the SMS) |
 | `SMS_FEED_ENABLED` | System Settings | on when the feed should start (before linking, to get the roster; works while `SMS_SSO_ENABLED` is still off) |
 | `SMS_FEED_BRAKE_MIN` / `SMS_FEED_BRAKE_PCT` | System Settings | leave at 5 / 10 (hold a snapshot that would disable more than max(5, 10 % of linked) accounts) |
 | `SMS_JIT_ENABLED` | System Settings | **off** until linking (phase A) is complete |
@@ -67,7 +68,7 @@ The repo carries SMS's live public key: `deploy/sms/sms-live-202610.pub.pem` (ki
 1. **Feed first.** Turn on `SMS_FEED_ENABLED` and ask SMS to point its push at `https://oqb.mathedu.info/api/sms/directory` (SMS pushes every 10 minutes and on "Sync now"). Check the first push: `auth_audit_log` event `feed_snapshot` with reason `applied`; `sms_subject_catalogue` and `sms_roster` are filled. Until `SMS_SSO_ENABLED` is on, SMS levels do not count, so nobody's access changes; a linked leaver is still disabled.
 2. Map each SMS subject to OQB subjects on **Subject mapping** (pick the OQB subject, **Map**; one SMS subject may map to several). Nothing is matched automatically; an unmapped subject (highlighted) grants only the default level. Each push reports the uuids still unmapped (`unmapped_subjects`; Snapshots shows the count).
 3. Link existing teachers on **Linking**: the roster lists every SMS staff member not yet linked, with up to five suggested OQB accounts (staff code, email, name); check the person, click the suggestion. Or teachers self-link once sign-in is on (open the Question Bank from SMS → sign in with the OQB password → confirm).
-4. Turn on `SMS_SSO_ENABLED`. The login page then shows **Sign in with SMS** (`https://ms.tic.edu.hk/apps/oqb?origin=https://oqb.mathedu.info`).
+4. Turn on `SMS_SSO_ENABLED`. Staff open OQB from inside the SMS. To also show **Sign in with SMS** on the OQB login page (`https://ms.tic.edu.hk/apps/oqb?origin=https://oqb.mathedu.info`), turn on `SMS_LOGIN_BUTTON_ENABLED` (off by default; `/sso/sms`, linking and JIT do not depend on it).
 5. **Watch the brake.** A push that would disable more than max(5, 10 %) of linked accounts answers 202 and is held (alert `feed_held`); nothing is disabled until a super admin approves it on **Snapshots** (**Approve: disable these accounts** or **Discard: keep them active**; only the latest snapshot can be decided). The first real snapshot is the most likely to trip it if SMS data is off. Linked subs missing from a snapshot are left alone and flagged (`feed_missing` alert, `external_identities.missing_since`).
 6. JIT later: turn on `SMS_JIT_ENABLED` once linking is done; new staff then get a password-less account on first sign-in.
 

@@ -29,7 +29,7 @@ class SsoCase(DbTestCase):
         self._stack.enter_context(sms_clock.frozen(smskit.REFERENCE_NOW))
         self.addCleanup(self._stack.close)
         self.app.config.update(SMS_SSO_ENABLED=True, PUBLIC_ORIGIN=ORIGIN, SMS_JIT_ENABLED=False,
-                               PROXY_FIX_HOPS=0)
+                               SMS_LOGIN_BUTTON_ENABLED=True, PROXY_FIX_HOPS=0)
         sso._limiter.reset()
         smskit.install_db_trust()
         for code, sids in MAPPING.items():
