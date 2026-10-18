@@ -204,6 +204,7 @@ Dependencies: `pypdf>=4.0` (vector export; degrades to raster if absent), `rapid
 10. Filename is required for save-to-server and there is no silent auto-suffix — the 409 → Overwrite/Rename flow is the only conflict path.
 11. `_sanitize_annots` caps are 300 text chars and 2000 ink points (not larger). Client-side limits must not exceed these or marks will be silently truncated/dropped.
 12. Preview thumbs use `width_px`; export uses `dpi`. Do not pass both to `rasterize_page`.
+13. Save-to-server jobs stay in `_EXPORT_JOBS` with `finished: False` until the thread ends (`finally` sets `finished`). User erase refuses (409 `toolbox_export`) while that flag is false for the user's id. Do not drop an unfinished save job from the registry, and do not add a table for it. Download exports are not a guard.
 
 ## Related
 

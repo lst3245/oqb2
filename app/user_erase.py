@@ -127,7 +127,21 @@ def _refusal(user, actor, plan):
             return EraseRefused('last_super_admin')
     if plan['in_progress']:
         return EraseRefused('job_running', n=plan['in_progress'])
+    if _toolbox_save_running(user.id):
+        return EraseRefused('toolbox_export')
     return None
+
+
+def _toolbox_save_running(user_id) -> bool:
+    """True while this user has a toolbox PDF save-to-server job in the
+    in-memory registry (``app.toolbox.pdf._EXPORT_JOBS``). Download exports
+    are not a guard. No registry (import failure) means nothing to refuse."""
+    try:
+        from app.toolbox.pdf import user_save_export_running
+    except Exception:
+        _log().exception('user erase: toolbox save-export registry unavailable')
+        return False
+    return bool(user_save_export_running(user_id))
 
 
 # ------------------------------------------------------------------ paths

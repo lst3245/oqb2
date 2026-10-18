@@ -28,6 +28,7 @@ from app import storage
 from app import subject_snapshot
 from app import marks_spacing
 from app import user_erase
+from app import users_directory
 from app.i18n import display_name, build_name_index, lookup_name, t as _t
 from app.tax_numbers import numbered_name
 from sqlalchemy.orm import configure_mappers, selectinload
@@ -4004,33 +4005,12 @@ def create_question():
 @login_required
 @super_admin_required
 def users():
-    """User management page - super admin only"""
-    all_users = User.query.order_by(User.username).all()
-    all_subjects = Subject.query.all()
-    
-    # Build user data with permissions
-    users_data = []
-    for user in all_users:
-        permissions = {}
-        for perm in user.subject_permissions.all():
-            permissions[perm.subject_id] = perm.role
-        
-        users_data.append({
-            'user': user,
-            'permissions': permissions
-        })
-
-    sms_ids, sms_lv = {}, {}
-    if current_app.config.get('SMS_SCHEMA_READY'):
-        from app import sms_admin
-        sms_ids, sms_lv = sms_admin.identities_by_user(), sms_admin.sms_levels_by_user()
-    for data in users_data:
-        data['identities'] = sms_ids.get(data['user'].id, [])
-        data['sms_levels'] = sms_lv.get(data['user'].id, [])
-
-    return render_template('admin_users.html', 
-                           users_data=users_data, 
-                           subjects=all_subjects)
+    """User management page - super admin only. One row per user; permissions
+    load from ``user_permissions_panel``. Filters: app/users_directory.py."""
+    ctx = users_directory.listing(request.args)
+    template = ('partials/admin_users_browser.html'
+                if request.headers.get('HX-Request') else 'admin_users.html')
+    return render_template(template, **ctx)
 
 
 def _rename_user_storage_folder(old_username, new_username):
@@ -4177,6 +4157,8 @@ def _erase_refusal_message(exc):
     if exc.reason == 'job_running':
         return _t('{n} document(s) of this user are still generating. Try again when they finish.',
                   n=exc.params.get('n', 0))
+    if exc.reason == 'toolbox_export':
+        return _t('This user has a toolbox PDF save to the server still running. Try again when it finishes.')
     return _t('This user cannot be deleted right now.')
 
 
@@ -4284,6 +4266,26 @@ def get_user_permissions(user_id):
         'is_super_admin': user.is_super_admin,
         'permissions': permissions
     })
+
+
+@admin_bp.route('/users/<int:user_id>/permissions-panel')
+@login_required
+@super_admin_required
+def user_permissions_panel(user_id):
+    """Offcanvas body: local grants, read-only SMS levels, effective level."""
+    user = User.query.get_or_404(user_id)
+    return render_template('partials/admin_user_permissions.html',
+                           **users_directory.permission_panel(user))
+
+
+@admin_bp.route('/users/<int:user_id>/row')
+@login_required
+@super_admin_required
+def user_row(user_id):
+    """One table row, so a permission save can refresh the access summary."""
+    user = User.query.get_or_404(user_id)
+    return render_template('partials/admin_users_row.html',
+                           row=users_directory.one_row(user))
 
 
 # ==================== Export / Import ====================

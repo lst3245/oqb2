@@ -1,0 +1,122 @@
+<div id="users-browser">
+    <form id="users-filter" method="get" action="{{ url_for('admin.users') }}" class="row g-2 align-items-end mb-3"
+          hx-get="{{ url_for('admin.users') }}" hx-target="#users-browser" hx-swap="outerHTML" hx-push-url="true"
+          hx-trigger="submit, change delay:200ms">
+        <div class="col-md-3">
+            <label class="form-label small mb-0" for="users-q">{{ t('Search users') }}</label>
+            <input type="search" class="form-control form-control-sm" id="users-q" name="q" value="{{ filters.q }}"
+                   placeholder="{{ t('Search users') }}" autocomplete="off">
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="users-status">{{ t('Status') }}</label>
+            <select class="form-select form-select-sm" id="users-status" name="status">
+                <option value="active" {% if filters.status == 'active' %}selected{% endif %}>{{ t('Active') }}</option>
+                <option value="disabled" {% if filters.status == 'disabled' %}selected{% endif %}>{{ t('Disabled') }}</option>
+                <option value="all" {% if filters.status == 'all' %}selected{% endif %}>{{ t('All') }}</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="users-source">{{ t('Source') }}</label>
+            <select class="form-select form-select-sm" id="users-source" name="source">
+                <option value="all" {% if filters.source == 'all' %}selected{% endif %}>{{ t('All') }}</option>
+                <option value="local" {% if filters.source == 'local' %}selected{% endif %} title="{{ t('No SMS identity.') }}">{{ t('Local') }}</option>
+                <option value="sms" {% if filters.source == 'sms' %}selected{% endif %} title="{{ t('Has an SMS identity.') }}">{{ t('SMS-linked') }}</option>
+                <option value="jit" {% if filters.source == 'jit' %}selected{% endif %} title="{{ t('Accounts created when someone first signs in from SMS.') }}">{{ t('JIT') }}</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="users-subject" title="{{ t('User or Admin on this subject (active accounts). Includes super admins.') }}">{{ t('Subject') }}</label>
+            <select class="form-select form-select-sm" id="users-subject" name="subject" title="{{ t('User or Admin on this subject (active accounts). Includes super admins.') }}">
+                <option value="">{{ t('Any subject') }}</option>
+                {% for subject in subjects %}
+                <option value="{{ subject.id }}" {% if filters.subject == subject.id %}selected{% endif %}>{{ tax_name(subject) }} ({{ subject.id }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <div class="form-check mb-1">
+                <input class="form-check-input" type="checkbox" name="super" value="1" id="users-super" {% if filters['super'] %}checked{% endif %}>
+                <label class="form-check-label small" for="users-super">{{ t('Super admin only') }}</label>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">{{ t('Apply') }}</button>
+        </div>
+        <div class="col-auto">
+            {% if filters.status == 'active' %}
+            <a id="show-disabled" class="btn btn-sm btn-outline-secondary"
+               href="{{ users_href(status='all', page=1) }}"
+               hx-get="{{ users_href(status='all', page=1) }}" hx-target="#users-browser" hx-swap="outerHTML" hx-push-url="true">{{ t('Show disabled') }}</a>
+            {% else %}
+            <a id="show-disabled" class="btn btn-sm btn-outline-secondary"
+               href="{{ users_href(status='active', page=1) }}"
+               hx-get="{{ users_href(status='active', page=1) }}" hx-target="#users-browser" hx-swap="outerHTML" hx-push-url="true">{{ t('Hide disabled') }}</a>
+            {% endif %}
+        </div>
+    </form>
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <span id="users-range" class="small text-muted">{{ t('{start}-{end} of {total}', start=start, end=end, total=total) }}</span>
+    </div>
+
+    <table class="table table-sm table-hover align-middle users-table mb-2">
+        <thead class="table-light">
+            <tr>
+                <th>{{ t('Username') }}</th>
+                <th>{{ t('Status') }}</th>
+                <th>{{ t('Access') }}</th>
+                <th>{{ t('Last sign-in') }}</th>
+                <th>{{ t('Created') }}</th>
+                <th>{{ t('Actions') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            {% include 'partials/admin_users_row.html' %}
+            {% else %}
+            <tr>
+                <td colspan="6" class="text-muted">
+                    {% if filters.q or filters.source != 'all' or filters['super'] or filters.subject or filters.status != 'all' %}
+                    {{ t('No users match these filters.') }}
+                    {% else %}
+                    {{ t('No users found. Click "Add User" to create one.') }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if pages > 1 or total > 0 %}
+    <nav aria-label="{{ t('Pagination') }}">
+        <ul class="pagination pagination-sm mb-0">
+            <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                {% if page > 1 %}
+                <a class="page-link" href="{{ users_href(page=page - 1) }}"
+                   hx-get="{{ users_href(page=page - 1) }}" hx-target="#users-browser" hx-swap="outerHTML" hx-push-url="true">{{ t('Prev') }}</a>
+                {% else %}
+                <span class="page-link">{{ t('Prev') }}</span>
+                {% endif %}
+            </li>
+            {% for n in page_numbers %}
+            {% if n is none %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% else %}
+            <li class="page-item {% if n == page %}active{% endif %}">
+                <a class="page-link" href="{{ users_href(page=n) }}" {% if n == page %}aria-current="page"{% endif %}
+                   hx-get="{{ users_href(page=n) }}" hx-target="#users-browser" hx-swap="outerHTML" hx-push-url="true">{{ n }}</a>
+            </li>
+            {% endif %}
+            {% endfor %}
+            <li class="page-item {% if page >= pages %}disabled{% endif %}">
+                {% if page < pages %}
+                <a class="page-link" href="{{ users_href(page=page + 1) }}"
+                   hx-get="{{ users_href(page=page + 1) }}" hx-target="#users-browser" hx-swap="outerHTML" hx-push-url="true">{{ t('Next') }}</a>
+                {% else %}
+                <span class="page-link">{{ t('Next') }}</span>
+                {% endif %}
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+</div>

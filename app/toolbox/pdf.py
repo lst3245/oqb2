@@ -69,11 +69,29 @@ _EXPORT_JOBS: dict = {}
 
 
 def _cleanup_export_jobs(max_age: int = 600) -> None:
-    """Drop stale jobs older than *max_age* seconds."""
+    """Drop jobs older than *max_age* seconds. A save-to-server job with
+    ``finished is False`` is still running and is kept (user erase checks it)."""
     now = time.time()
-    stale = [k for k, v in list(_EXPORT_JOBS.items()) if now - v.get('ts', 0) > max_age]
+    stale = [k for k, v in list(_EXPORT_JOBS.items())
+             if now - v.get('ts', 0) > max_age and v.get('finished') is not False]
     for k in stale:
         _EXPORT_JOBS.pop(k, None)
+
+
+def user_save_export_running(user_id) -> bool:
+    """True when ``user_id`` has a save-to-server export that has not finished.
+    Download jobs and finished saves do not count. In-memory only."""
+    if user_id is None:
+        return False
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return False
+    for job in list(_EXPORT_JOBS.values()):
+        if (job.get('mode') == 'save' and job.get('finished') is False
+                and job.get('owner') == uid):
+            return True
+    return False
 
 
 # ==================== Staging ====================
@@ -1029,7 +1047,7 @@ def pdf_export_save_start():
     job_id = uuid.uuid4().hex
     q: _queue_mod.Queue = _queue_mod.Queue()
     job: dict = {'q': q, 'mode': 'save', 'ts': time.time(),
-                 'owner': authz.current_user_id()}
+                 'owner': authz.current_user_id(), 'finished': False}
     _EXPORT_JOBS[job_id] = job
 
     app = current_app._get_current_object()
@@ -1046,6 +1064,8 @@ def pdf_export_save_start():
             except Exception as exc:
                 logger.exception('toolbox async export-save failed')
                 q.put({'type': 'error', 'message': f'Save failed: {exc}'})
+            finally:
+                job['finished'] = True
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({'ok': True, 'job_id': job_id})

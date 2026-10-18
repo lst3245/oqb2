@@ -549,7 +549,7 @@ class JsonAndPageTests(EraseCase):
         self.fresh()
         html = self.client.get('/admin/users').get_data(as_text=True)
         self.assertIn('id="eraseUserModal"', html)
-        card = html.split(f'id="user-{self.users["teacher_a"]}"', 1)[1].split('class="card-body"', 1)[0]
+        card = html.split(f'id="user-{self.users["teacher_a"]}"', 1)[1].split('</tr>', 1)[0]
         self.assertIn('toggle-active-btn', card)
         self.assertIn("setUserActive(", card)
         self.assertLess(card.index('toggle-active-btn'), card.index('deleteUser('))
@@ -557,8 +557,8 @@ class JsonAndPageTests(EraseCase):
         u.active = False
         db.session.commit()
         self.fresh()
-        html = self.client.get('/admin/users').get_data(as_text=True)
-        card = html.split(f'id="user-{self.users["teacher_a"]}"', 1)[1].split('class="card-body"', 1)[0]
+        html = self.client.get('/admin/users?status=all').get_data(as_text=True)
+        card = html.split(f'id="user-{self.users["teacher_a"]}"', 1)[1].split('</tr>', 1)[0]
         self.assertIn('setUserActive({}, true)'.format(self.users['teacher_a']), card)
 
     def test_template_strings_are_wrapped(self):

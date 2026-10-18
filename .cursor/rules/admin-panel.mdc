@@ -1,6 +1,6 @@
 ---
 description: Admin panel - subjects/topics/chapters/users/export-import/health pages and Question Management (Edit modal, assets, batch ops)
-globs: app/admin.py,app/batch_edit.py,app/batch_image_gen.py,templates/admin_*.html,templates/partials/edit_question_modal*.html,templates/partials/tag_editor_*.html
+globs: app/admin.py,app/users_directory.py,app/batch_edit.py,app/batch_image_gen.py,templates/admin_*.html,templates/partials/admin_users*.html,templates/partials/admin_user_permissions.html,templates/partials/edit_question_modal*.html,templates/partials/tag_editor_*.html
 alwaysApply: false
 ---
 
@@ -10,8 +10,8 @@ alwaysApply: false
 
 ## Panel invariants
 - `Subject.id` is immutable; only `name` and `name_zh` are editable. Delete is 400 while any question references it; cleanup order SavedQuestionSet → SavedFilter (JSON `subject` scan) → UserSubjectPermission → `subject_restore_points` → Subject (topics/chapters cascade). Disk is untouched.
-- Users: `validate_username` (`^[A-Za-z0-9._-]{1,80}$`, reserved names); rename moves `User/<old>` → `User/<new>` best-effort; cannot rename, demote, or delete yourself. Your own edit sets the password only. Permissions payload `{"permissions": {sid: role|''|null}}` merges per key.
-- User Delete = full erase, only through `user_erase.erase_user` (Disable is the leaver action). Explicit Core statements in one transaction, files removed only after commit and realpath-confined. A new table / column referencing `users.id` must be added to `user_erase.NULL_REFS` / `OWNED` / `LINKS` (+ `tests/test_user_erase.py`). Never "fix" it with ORM cascades: non-strict `sql_mode` coerces `user_id = NULL` to 0 → FK error 1452.
+- Users: `validate_username` (`^[A-Za-z0-9._-]{1,80}$`, reserved names); rename moves `User/<old>` → `User/<new>` best-effort; cannot rename, demote, or delete yourself. Your own edit sets the password only. Permissions payload `{"permissions": {sid: role|''|null}}` merges per key. The page is a 25-row table (`app/users_directory.py`); do not render a per-subject `<select>` on it — the offcanvas is `GET /users/<id>/permissions-panel`.
+- User Delete = full erase, only through `user_erase.erase_user` (Disable is the leaver action). Explicit Core statements in one transaction, files removed only after commit and realpath-confined. Also 409 while that user has an unfinished toolbox PDF save-to-server job in `app.toolbox.pdf._EXPORT_JOBS` (`mode` `save`, `finished` is false). A new table / column referencing `users.id` must be added to `user_erase.NULL_REFS` / `OWNED` / `LINKS` (+ `tests/test_user_erase.py`). Never "fix" it with ORM cascades: non-strict `sql_mode` coerces `user_id = NULL` to 0 → FK error 1452.
 - Health: `/admin/health/sync?mode=dry_run|delete` (dry run default; 24 h grace for asset-less questions); `/health/stats` is DB-only. Anomaly hand-off to lists via `?qids=` or `?qids_token=<localStorage key>` (consumed once).
 - `/admin/ingestion` is a 302 to `/admin/import`; `admin_ingestion.html` no longer exists.
 - Super-admin-only pages: Users, Subjects, Settings, LLM Endpoints, Prompts, Health, `/admin/files`.
