@@ -78,7 +78,7 @@ Key: `[done]` implemented, tested (where tests exist), documented · `[partial]`
 | Question Management | `/admin/questions` | `admin_questions.html` + `admin_questions/` partials | Admin dropdown + Admin hub card + dashboard **Manage** | `[done]` |
 | Split into parts | `/admin/questions/<id>/split` | `admin_question_split.html` (`OQBBboxEditor`) | from Edit modal | `[done]` |
 | MD fullscreen editor | `/admin/questions/<qid>/assets/<aid>/md/edit` | `admin_md_editor.html` | from Edit modal | `[done]` |
-| Users | `/admin/users` | `admin_users.html` | Admin dropdown (super) | `[done]` (SMS badge / levels / account actions on `feature/sms-sso`) |
+| Users | `/admin/users` | `admin_users.html` + `partials/admin_users_*.html` | Admin dropdown (super) | `[done]` Paged table (search, status/source/super/subject filters, 25/page, effective-access summary). Permissions offcanvas `GET /admin/users/<id>/permissions-panel`. Disable on the row; Delete = full erase (`app/user_erase.py`, `tests/test_user_erase.py`, `tests/test_admin_users_table.py`), also refused while a toolbox PDF save-to-server job of that user is running. |
 | SMS sign-in admin (overview, mapping, linking, snapshots, trust list, audit) | `/admin/sms/`, `/admin/sms/mapping`, `/admin/sms/linking`, `/admin/sms/snapshots`, `/admin/sms/trust`, `/admin/sms/audit` | `admin_sms/*.html` | Admin dropdown (super, alert badge) + Admin hub card | `[done]` on `feature/sms-sso` |
 | Export / Import | `/admin/export-import` | `admin_export_import.html` | Admin dropdown | `[done]` |
 | Smart Import | `/admin/import` | `admin_smart_import.html` | Admin dropdown | `[done]` |

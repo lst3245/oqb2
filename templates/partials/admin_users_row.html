@@ -1,0 +1,94 @@
+<tr class="user-row" id="user-{{ row.user.id }}">
+    <td>
+        <div class="fw-semibold">{{ row.user.username }}</div>
+        {% if row.meta %}
+        <div class="small text-muted user-meta">{{ row.meta }}</div>
+        {% endif %}
+    </td>
+    <td>
+        {% if row.user.is_active %}
+        <span class="badge bg-success">{{ t('Active') }}</span>
+        {% elif row.user.disabled_reason == 'sms_deprovisioned' %}
+        <span class="badge bg-secondary ms-1 disabled-badge">{{ t('Disabled by SMS') }}</span>
+        {% else %}
+        <span class="badge bg-secondary ms-1 disabled-badge">{{ t('Disabled') }}</span>
+        {% endif %}
+        {% if row.user.is_super_admin %}
+        <span class="badge super-admin-badge ms-1"><i class="bi bi-shield-check"></i> {{ t('Super Admin') }}</span>
+        {% endif %}
+        {% if row.identities %}
+        <span class="badge bg-info text-dark ms-1 sms-badge" title="{{ row.identities|map(attribute='issuer')|join(' · ') }}">{% if row.missing_sms %}<i class="bi bi-exclamation-triangle"></i> {% endif %}{{ t('SMS-linked') }}</span>
+        {% endif %}
+        {% if row.user.local_only %}
+        <span class="badge bg-dark ms-1 local-only-badge" title="{{ t('Password sign-in only; never linked to SMS.') }}">{{ t('Local only') }}</span>
+        {% endif %}
+    </td>
+    <td class="user-summary small">{{ row.summary }}</td>
+    <td class="small text-nowrap">
+        {% if row.login_iso %}
+        <span data-utc="{{ row.login_iso }}">{{ row.login_iso }}</span>
+        {% if row.login_method == 'password' %}
+        <span class="text-muted">{{ t('Password') }}</span>
+        {% elif row.login_method == 'sms' %}
+        <span class="text-muted">{{ t('SMS sign-in') }}</span>
+        {% elif row.login_method %}
+        <span class="text-muted">{{ row.login_method }}</span>
+        {% endif %}
+        {% else %}
+        {{ t('Never') }}
+        {% endif %}
+    </td>
+    <td class="small text-nowrap text-muted">{{ row.user.created_at.strftime('%Y-%m-%d') }}</td>
+    <td class="text-nowrap users-actions">
+        {% if row.user.id != current_user.id %}
+        {% if row.user.is_active %}
+        <button type="button" class="btn btn-sm btn-outline-warning toggle-active-btn"
+                title="{{ t('Blocks sign-in and keeps the account, its files and settings. Use this for staff who leave.') }}"
+                onclick="setUserActive({{ row.user.id }}, false)">
+            <i class="bi bi-slash-circle"></i> {{ t('Disable account') }}
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-sm btn-outline-success toggle-active-btn"
+                onclick="setUserActive({{ row.user.id }}, true)">
+            <i class="bi bi-check-circle"></i> {{ t('Enable account') }}
+        </button>
+        {% endif %}
+        <div class="dropdown d-inline-block">
+            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ t('Actions') }}">
+                <i class="bi bi-three-dots-vertical"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><button type="button" class="dropdown-item" onclick="showEditUserModal({{ row.user.id }}, '{{ row.user.username }}', {{ 'true' if row.user.is_super_admin else 'false' }})"><i class="bi bi-pencil"></i> {{ t('Edit') }}</button></li>
+                {% if row.can_reset_password %}
+                <li><button type="button" class="dropdown-item" onclick="showResetPasswordModal({{ row.user.id }}, '{{ row.user.username }}', {{ 'true' if row.user.is_super_admin else 'false' }})"><i class="bi bi-key"></i> {{ t('Reset password') }}</button></li>
+                {% endif %}
+                <li><button type="button" class="dropdown-item" onclick="openPermissions({{ row.user.id }})"><i class="bi bi-sliders"></i> {{ t('Permissions...') }}</button></li>
+                <li><button type="button" class="dropdown-item" onclick="accountAction('{{ url_for('account_admin.revoke_sessions', user_id=row.user.id) }}', {}, OQB.t('End all sessions of this user?'));"><i class="bi bi-box-arrow-right"></i> {{ t('End all sessions') }}</button></li>
+                {% if row.user.local_only %}
+                <li><button type="button" class="dropdown-item" onclick="accountAction('{{ url_for('account_admin.set_local_only', user_id=row.user.id) }}', {local_only: '0'});"><i class="bi bi-unlock"></i> {{ t('Allow SMS linking') }}</button></li>
+                {% elif not row.identities %}
+                <li><button type="button" class="dropdown-item" onclick="accountAction('{{ url_for('account_admin.set_local_only', user_id=row.user.id) }}', {local_only: '1'});"><i class="bi bi-lock"></i> {{ t('Make local-only') }}</button></li>
+                {% endif %}
+                {% for i in row.identities %}
+                <li><form method="post" action="{{ url_for('sms_admin.unlink') }}" class="m-0">{{ csrf_field() }}
+                    <input type="hidden" name="issuer" value="{{ i.issuer }}">
+                    <input type="hidden" name="user_id" value="{{ row.user.id }}">
+                    <input type="hidden" name="next" value="users">
+                    <button type="submit" class="dropdown-item text-danger" onclick="return confirm(OQB.t('Unlink this account? Its SMS levels are removed and its sessions end.'))"><i class="bi bi-x-octagon"></i> {{ t('Unlink from SMS') }}</button>
+                </form></li>
+                {% endfor %}
+                <li><hr class="dropdown-divider"></li>
+                <li><button type="button" class="dropdown-item text-danger" title="{{ t('Permanently erase this user and everything they own') }}" onclick="deleteUser({{ row.user.id }}, '{{ row.user.username }}')"><i class="bi bi-trash"></i> {{ t('Delete') }}</button></li>
+            </ul>
+        </div>
+        {% else %}
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="showChangePasswordModal({{ row.user.id }}, '{{ row.user.username }}')">
+            <i class="bi bi-key"></i> {{ t('Change password') }}
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openPermissions({{ row.user.id }})">
+            <i class="bi bi-sliders"></i> {{ t('Permissions...') }}
+        </button>
+        <span class="badge bg-info">{{ t('You') }}</span>
+        {% endif %}
+    </td>
+</tr>

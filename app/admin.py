@@ -27,6 +27,8 @@ from app import web_security
 from app import storage
 from app import subject_snapshot
 from app import marks_spacing
+from app import user_erase
+from app import users_directory
 from app.i18n import display_name, build_name_index, lookup_name, t as _t
 from app.tax_numbers import numbered_name
 from sqlalchemy.orm import configure_mappers, selectinload
@@ -4003,33 +4005,12 @@ def create_question():
 @login_required
 @super_admin_required
 def users():
-    """User management page - super admin only"""
-    all_users = User.query.order_by(User.username).all()
-    all_subjects = Subject.query.all()
-    
-    # Build user data with permissions
-    users_data = []
-    for user in all_users:
-        permissions = {}
-        for perm in user.subject_permissions.all():
-            permissions[perm.subject_id] = perm.role
-        
-        users_data.append({
-            'user': user,
-            'permissions': permissions
-        })
-
-    sms_ids, sms_lv = {}, {}
-    if current_app.config.get('SMS_SCHEMA_READY'):
-        from app import sms_admin
-        sms_ids, sms_lv = sms_admin.identities_by_user(), sms_admin.sms_levels_by_user()
-    for data in users_data:
-        data['identities'] = sms_ids.get(data['user'].id, [])
-        data['sms_levels'] = sms_lv.get(data['user'].id, [])
-
-    return render_template('admin_users.html', 
-                           users_data=users_data, 
-                           subjects=all_subjects)
+    """User management page - super admin only. One row per user; permissions
+    load from ``user_permissions_panel``. Filters: app/users_directory.py."""
+    ctx = users_directory.listing(request.args)
+    template = ('partials/admin_users_browser.html'
+                if request.headers.get('HX-Request') else 'admin_users.html')
+    return render_template(template, **ctx)
 
 
 def _rename_user_storage_folder(old_username, new_username):
@@ -4168,21 +4149,62 @@ def edit_user(user_id):
     })
 
 
+def _erase_refusal_message(exc):
+    if exc.reason == 'self':
+        return _t('Cannot delete your own account')
+    if exc.reason == 'last_super_admin':
+        return _t('Cannot delete the last active super admin.')
+    if exc.reason == 'job_running':
+        return _t('{n} document(s) of this user are still generating. Try again when they finish.',
+                  n=exc.params.get('n', 0))
+    if exc.reason == 'toolbox_export':
+        return _t('This user has a toolbox PDF save to the server still running. Try again when it finishes.')
+    return _t('This user cannot be deleted right now.')
+
+
+@admin_bp.route('/users/<int:user_id>/delete-preview')
+@login_required
+@super_admin_required
+def delete_user_preview(user_id):
+    """Counts for the erase confirm dialog (read only)."""
+    user = db.session.get(User, user_id)
+    if user is None:
+        return jsonify({'error': _t('User not found')}), 404
+    try:
+        data = user_erase.preview(user, current_user)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Delete preview for user %s failed', user_id)
+        return jsonify({'error': _t('Could not load the delete preview.')}), 500
+    refusal = data.pop('refusal')
+    data['blocked'] = _erase_refusal_message(refusal) if refusal else None
+    return jsonify({'success': True, **data})
+
+
 @admin_bp.route('/users/<int:user_id>/delete', methods=['POST', 'DELETE'])
 @login_required
 @super_admin_required
 def delete_user(user_id):
-    """Delete a user"""
-    user = User.query.get_or_404(user_id)
-    
-    # Prevent deleting yourself
-    if user.id == current_user.id:
-        return jsonify({'error': _t('Cannot delete your own account')}), 400
-    
-    db.session.delete(user)
-    db.session.commit()
-    
-    return jsonify({'success': True})
+    """Permanently erase a user and everything they own (app/user_erase.py).
+    Disable (account_admin.set_active) is the action for staff who leave."""
+    user = db.session.get(User, user_id)
+    if user is None:
+        return jsonify({'error': _t('User not found')}), 404
+    try:
+        result = user_erase.erase_user(user, current_user, ip=web_security.client_ip(request))
+    except user_erase.EraseRefused as exc:
+        db.session.rollback()
+        return jsonify({'error': _erase_refusal_message(exc), 'reason': exc.reason}), exc.status
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Erasing user %s failed', user_id)
+        return jsonify({'error': _t('Could not delete the user. No files were removed; see the server log.')}), 500
+    body = {'success': True, **result}
+    left = result['files_failed'] + result['files_refused']
+    if left:
+        body['message'] = _t('The user was erased, but {n} file(s) could not be removed. See the server log.',
+                             n=left)
+    return jsonify(body)
 
 
 @admin_bp.route('/users/<int:user_id>/permissions', methods=['POST'])
@@ -4244,6 +4266,26 @@ def get_user_permissions(user_id):
         'is_super_admin': user.is_super_admin,
         'permissions': permissions
     })
+
+
+@admin_bp.route('/users/<int:user_id>/permissions-panel')
+@login_required
+@super_admin_required
+def user_permissions_panel(user_id):
+    """Offcanvas body: local grants, read-only SMS levels, effective level."""
+    user = User.query.get_or_404(user_id)
+    return render_template('partials/admin_user_permissions.html',
+                           **users_directory.permission_panel(user))
+
+
+@admin_bp.route('/users/<int:user_id>/row')
+@login_required
+@super_admin_required
+def user_row(user_id):
+    """One table row, so a permission save can refresh the access summary."""
+    user = User.query.get_or_404(user_id)
+    return render_template('partials/admin_users_row.html',
+                           row=users_directory.one_row(user))
 
 
 # ==================== Export / Import ====================

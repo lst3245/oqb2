@@ -488,8 +488,8 @@ class AccountAdminTests(AdminCase):
         self.assertIsNotNone(u.disabled_at)
         self.assertIn('/login', teacher.get('/').headers['Location'])
         self.assert_next(self.submit('teacher_viewer_user'), '/sso/sms/failed', 401)  # SMS never re-enables
-        card = self.page('/admin/users').split(f'id="user-{self.users["teacher_a"]}"', 1)[1]
-        self.assertIn('disabled-badge', card.split('class="col-12 mb-3"', 1)[0])
+        card = self.page('/admin/users?status=all').split(f'id="user-{self.users["teacher_a"]}"', 1)[1]
+        self.assertIn('disabled-badge', card.split('</tr>', 1)[0])
         self.su.post(url, data={'active': '1'})
         u = self.fresh('teacher_a')
         self.assertEqual((u.active, u.disabled_reason, u.disabled_at), (True, None, None))
@@ -498,7 +498,7 @@ class AccountAdminTests(AdminCase):
     def test_enable_an_sms_deprovisioned_account(self):
         self.push('snapshot_baseline')
         self.push('snapshot_deprovision_teacher')
-        self.assertIn('Disabled by SMS', self.page('/admin/users'))
+        self.assertIn('Disabled by SMS', self.page('/admin/users?status=all'))
         self.su.post(f'/admin/users/{self.users["teacher_a"]}/active', data={'active': '1'})
         self.assertTrue(self.fresh('teacher_a').active)
         self.assertEqual(json.loads(self.audit('account_state')[-1].detail),
@@ -523,15 +523,19 @@ class UsersPageTests(AdminCase):
     def test_sms_badge_levels_and_states(self):
         self.push('snapshot_baseline')
         html = self.page('/admin/users')
-        card = html.split(f'id="user-{self.users["teacher_a"]}"', 1)[1].split('class="col-12 mb-3"', 1)[0]
+        card = html.split(f'id="user-{self.users["teacher_a"]}"', 1)[1].split('</tr>', 1)[0]
         self.assertIn('sms-badge', card)
-        self.assertIn('SMS levels (read-only)', card)
-        self.assertRegex(card, r'MATH: User')
+        self.assertNotIn('permission-select', card)
         self.assertIn('/revoke-sessions', card)
-        glass = html.split(f'id="user-{self.users["breakglass"]}"', 1)[1].split('class="col-12 mb-3"', 1)[0]
+        panel = self.su.get(f'/admin/users/{self.users["teacher_a"]}/permissions-panel')
+        self.assertEqual(panel.status_code, 200)
+        panel_html = panel.get_data(as_text=True)
+        self.assertIn('SMS levels (read-only)', panel_html)
+        self.assertRegex(panel_html, r'MATH: User')
+        glass = html.split(f'id="user-{self.users["breakglass"]}"', 1)[1].split('</tr>', 1)[0]
         self.assertIn('local-only-badge', glass)
         self.assertNotIn('sms-badge', glass)
-        mine = html.split(f'id="user-{self.users["super"]}"', 1)[1].split('class="col-12 mb-3"', 1)[0]
+        mine = html.split(f'id="user-{self.users["super"]}"', 1)[1].split('</tr>', 1)[0]
         self.assertNotIn('/revoke-sessions', mine)
         # ssocase.LINKS: four primary links and 'tester' on the secondary issuer.
         self.assertEqual(len(re.findall(r'class="badge bg-info text-dark ms-1 sms-badge"', html)), 5)

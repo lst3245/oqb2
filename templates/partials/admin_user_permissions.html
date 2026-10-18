@@ -1,0 +1,61 @@
+<div data-user-id="{{ user.id }}">
+    <h6 class="mb-2">{{ user.username }}</h6>
+    {% if user.is_super_admin %}
+    <p class="text-muted small"><i class="bi bi-info-circle"></i> {{ t('Super admins have full access to all subjects and features.') }}</p>
+    {% endif %}
+    {% if not user.is_active %}
+    <p class="text-muted small">{{ t('This account is disabled, so it has no effective access.') }}</p>
+    {% endif %}
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-2">
+            <thead class="table-light">
+                <tr>
+                    <th>{{ t('Subject') }}</th>
+                    <th>{{ t('Local permission') }}</th>
+                    <th>{{ t('SMS level') }}</th>
+                    <th>{{ t('Effective') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for subject in subjects %}
+                <tr data-subject="{{ subject.id }}">
+                    <td>{{ tax_name(subject) }} ({{ subject.id }})</td>
+                    <td>
+                        <select class="form-select form-select-sm permission-select"
+                                onchange="updatePermission({{ user.id }}, '{{ subject.id }}', this.value)"
+                                data-user="{{ user.id }}" data-subject="{{ subject.id }}">
+                            <option value="" {% if subject.id not in local %}selected{% endif %}>{{ t('No Access') }}</option>
+                            <option value="viewer" {% if local.get(subject.id) == 'viewer' %}selected{% endif %}>{{ t('View Only') }}</option>
+                            <option value="user" {% if local.get(subject.id) == 'user' %}selected{% endif %}>{{ t('User') }}</option>
+                            <option value="admin" {% if local.get(subject.id) == 'admin' %}selected{% endif %}>{{ t('Admin') }}</option>
+                        </select>
+                    </td>
+                    <td>
+                        {% set sms_level = sms_only.get(subject.id) %}
+                        {% if sms_level == 'admin' %}{{ t('Admin') }}
+                        {% elif sms_level == 'user' %}{{ t('User') }}
+                        {% elif sms_level == 'viewer' %}{{ t('Viewer') }}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td class="effective-level">
+                        {% set eff = effective.get(subject.id) %}
+                        {% if eff == 'admin' %}{{ t('Admin') }}
+                        {% elif eff == 'user' %}{{ t('User') }}
+                        {% elif eff == 'viewer' %}{{ t('Viewer') }}
+                        {% else %}{{ t('No access') }}{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if sms_levels %}
+    <div class="sms-levels">
+        <h6 class="mb-1">{{ t('SMS levels (read-only)') }}</h6>
+        {% for issuer, code, level in sms_levels %}
+        <span class="badge bg-light text-dark border me-1">{{ code if code else t('Default') }}: {{ sms_level_label(level) }}</span>
+        {% endfor %}
+        <div class="small text-muted mt-1">{{ t('Set in SMS. Each subject uses the higher of the local permission above and the SMS level of a mapped SMS subject.') }}</div>
+    </div>
+    {% endif %}
+</div>
