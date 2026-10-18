@@ -37,6 +37,7 @@ TEST_WINDOW = 'test_window'
 JWKS_NEW_KID = 'jwks_new_kid'
 ACCOUNT_STATE = 'account_state'
 SESSIONS_REVOKED = 'sessions_revoked'
+USER_DELETED = 'user_deleted'
 
 OUTCOMES = ('ok', 'fail', 'info')
 

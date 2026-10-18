@@ -70,11 +70,6 @@
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
                                 <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.revoke_sessions', user_id=data.user.id) }}', {}, OQB.t('End all sessions of this user?')); return false;"><i class="bi bi-box-arrow-right"></i> {{ t('End all sessions') }}</a></li>
-                                {% if data.user.is_active %}
-                                <li><a class="dropdown-item text-danger" href="#" onclick="accountAction('{{ url_for('account_admin.set_active', user_id=data.user.id) }}', {active: '0'}, OQB.t('Disable this account? The user is signed out and cannot sign in.')); return false;"><i class="bi bi-slash-circle"></i> {{ t('Disable account') }}</a></li>
-                                {% else %}
-                                <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.set_active', user_id=data.user.id) }}', {active: '1'}); return false;"><i class="bi bi-check-circle"></i> {{ t('Enable account') }}</a></li>
-                                {% endif %}
                                 {% if data.user.local_only %}
                                 <li><a class="dropdown-item" href="#" onclick="accountAction('{{ url_for('account_admin.set_local_only', user_id=data.user.id) }}', {local_only: '0'}); return false;"><i class="bi bi-unlock"></i> {{ t('Allow SMS linking') }}</a></li>
                                 {% elif not data.identities %}
@@ -94,7 +89,19 @@
                                 onclick="showEditUserModal({{ data.user.id }}, '{{ data.user.username }}', {{ 'true' if data.user.is_super_admin else 'false' }})">
                             <i class="bi bi-pencil"></i> {{ t('Edit') }}
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteUser({{ data.user.id }}, '{{ data.user.username }}')">
+                        {% if data.user.is_active %}
+                        <button class="btn btn-sm btn-outline-warning toggle-active-btn"
+                                title="{{ t('Blocks sign-in and keeps the account, its files and settings. Use this for staff who leave.') }}"
+                                onclick="setUserActive({{ data.user.id }}, false)">
+                            <i class="bi bi-slash-circle"></i> {{ t('Disable account') }}
+                        </button>
+                        {% else %}
+                        <button class="btn btn-sm btn-outline-success toggle-active-btn" onclick="setUserActive({{ data.user.id }}, true)">
+                            <i class="bi bi-check-circle"></i> {{ t('Enable account') }}
+                        </button>
+                        {% endif %}
+                        <button class="btn btn-sm btn-outline-danger" title="{{ t('Permanently erase this user and everything they own') }}"
+                                onclick="deleteUser({{ data.user.id }}, '{{ data.user.username }}')">
                             <i class="bi bi-trash"></i> {{ t('Delete') }}
                         </button>
                         {% else %}
@@ -200,6 +207,43 @@
         </div>
     </div>
 </div>
+
+<!-- Erase (Delete) User Modal -->
+<div class="modal fade" id="eraseUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-trash"></i> {{ t('Erase user permanently') }}: <span id="eraseUserName"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger py-2">{{ t('This permanently erases the account and everything it owns. It cannot be undone.') }}</div>
+                <div class="alert alert-warning py-2 d-none" id="eraseUserBlocked"></div>
+                <table class="table table-sm mb-2">
+                    <tbody>
+                        <tr><td>{{ t('Generated files') }}</td><td class="text-end" id="erase-c-generated_files"></td></tr>
+                        <tr><td>{{ t('My Files sections') }}</td><td class="text-end" id="erase-c-file_sections"></td></tr>
+                        <tr><td>{{ t('Search Profiles') }}</td><td class="text-end" id="erase-c-saved_filters"></td></tr>
+                        <tr><td>{{ t('Generation Presets') }}</td><td class="text-end" id="erase-c-saved_generation_profiles"></td></tr>
+                        <tr><td>{{ t('Question Sets') }}</td><td class="text-end" id="erase-c-saved_question_sets"></td></tr>
+                        <tr><td>{{ t('File shares (given or received)') }}</td><td class="text-end" id="erase-c-file_shares"></td></tr>
+                        <tr><td>{{ t('Files in the personal folder') }}</td><td class="text-end" id="erase-c-home_files"></td></tr>
+                    </tbody>
+                </table>
+                <p class="small text-muted mb-2">{{ t('Shared profiles, presets and sets are deleted too; they are not handed to anyone.') }}</p>
+                <div class="alert alert-info py-2 d-none" id="eraseUserSms"><i class="bi bi-link-45deg"></i> {{ t('This account is linked to SMS. If the person signs in through SMS again, a new empty account is created for them.') }}</div>
+                <p class="small mb-3">{{ t('Accounts linked to SMS are recreated, empty, at their next SMS sign-in. For staff who leave, use Disable: it blocks sign-in and keeps their files.') }}</p>
+                <label class="form-label" for="eraseUserConfirm">{{ t('Type the username to confirm') }}</label>
+                <input type="text" class="form-control" id="eraseUserConfirm" autocomplete="off">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ t('Cancel') }}</button>
+                <button type="button" class="btn btn-outline-warning d-none" id="eraseUserDisable"><i class="bi bi-slash-circle"></i> {{ t('Disable instead') }}</button>
+                <button type="button" class="btn btn-danger" id="eraseUserGo" disabled><i class="bi bi-trash"></i> {{ t('Erase permanently') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -298,21 +342,80 @@ function saveUser() {
         .catch(err => alert(OQB.t('Error saving user')));
 }
 
+function userUrl(template, userId) {
+    return template.replace('/0/', `/${userId}/`);
+}
+
+function setUserActive(userId, active) {
+    const url = userUrl(`{{ url_for('account_admin.set_active', user_id=0) }}`, userId);
+    accountAction(url, {active: active ? '1' : '0'},
+                  active ? null : OQB.t('Disable this account? The user is signed out and cannot sign in.'));
+}
+
 function deleteUser(userId, username) {
-    if (!confirm(OQB.t('Delete user "{username}"? This action cannot be undone.', {username: username}))) return;
-    
-    fetch(`{{ url_for('admin.delete_user', user_id=0) }}`.replace('0', userId), {
-        method: 'POST'
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.error) {
-            alert(data.error);
-        } else {
+    fetch(userUrl(`{{ url_for('admin.delete_user_preview', user_id=0) }}`, userId))
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            showEraseModal(userId, username, data);
+        })
+        .catch(err => alert(OQB.t('Could not load the delete preview.')));
+}
+
+function showEraseModal(userId, username, data) {
+    const modalEl = document.getElementById('eraseUserModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    const c = data.counts || {};
+    document.getElementById('eraseUserName').textContent = username;
+    const shared = (n) => n ? ' (' + OQB.t('{n} shared', {n: n}) + ')' : '';
+    const cells = {
+        generated_files: String(c.generated_files || 0),
+        file_sections: String(c.file_sections || 0),
+        saved_filters: (c.saved_filters || 0) + shared(c.saved_filters_shared),
+        saved_generation_profiles: (c.saved_generation_profiles || 0) + shared(c.saved_generation_profiles_shared),
+        saved_question_sets: (c.saved_question_sets || 0) + shared(c.saved_question_sets_shared),
+        file_shares: String(c.file_shares || 0),
+        home_files: String(data.home_files || 0),
+    };
+    Object.entries(cells).forEach(([k, v]) => { document.getElementById('erase-c-' + k).textContent = v; });
+    document.getElementById('eraseUserSms').classList.toggle('d-none', !data.sms_linked);
+    const blocked = document.getElementById('eraseUserBlocked');
+    blocked.textContent = data.blocked || '';
+    blocked.classList.toggle('d-none', !data.blocked);
+
+    const input = document.getElementById('eraseUserConfirm');
+    const go = document.getElementById('eraseUserGo');
+    input.value = '';
+    go.disabled = true;
+    input.oninput = () => { go.disabled = !!data.blocked || input.value.trim() !== username; };
+    go.onclick = () => eraseUser(userId, go);
+
+    const disable = document.getElementById('eraseUserDisable');
+    disable.classList.toggle('d-none', !(data.user && data.user.active));
+    disable.onclick = () => { modal.hide(); setUserActive(userId, false); };
+    modal.show();
+}
+
+function eraseUser(userId, button) {
+    button.disabled = true;
+    fetch(userUrl(`{{ url_for('admin.delete_user', user_id=0) }}`, userId), { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                button.disabled = false;
+                return;
+            }
+            if (data.message) alert(data.message);
             location.reload();
-        }
-    })
-    .catch(err => alert(OQB.t('Error deleting user')));
+        })
+        .catch(err => {
+            alert(OQB.t('Error deleting user'));
+            button.disabled = false;
+        });
 }
 
 function accountAction(url, fields, question) {
