@@ -291,7 +291,15 @@
         </div>
         <div class="card-body">
             <div class="row g-3 mb-2" id="detectControls">
-                <div class="col-md-5">
+                <div class="col-md" id="methodCol">
+                    <label for="methodSelect" class="form-label fw-bold">{{ t('Detection method') }}</label>
+                    <select id="methodSelect" class="form-select">
+                        <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>{{ t('LLM only (model draws boxes)') }}</option>
+                        <option value="cv" {% if not numpy_available %}disabled{% endif %} {% if default_method == 'cv' %}selected{% endif %}>{{ t('Classical CV (no model call)') }}</option>
+                    </select>
+                    <div class="form-text">{{ t('Classical CV finds the printed question numbers and builds the boxes with no model call (needs NumPy). Low-confidence pages are flagged; the LLM runs only if you ask. Generic extraction stays on LLM only.') }}</div>
+                </div>
+                <div class="col-md" id="endpointCol">
                     <label for="endpointSelect" class="form-label fw-bold">{{ t('LLM endpoint (vision)') }}</label>
                     <select id="endpointSelect" class="form-select" {% if not endpoints %}disabled{% endif %}>
                         {% for e in endpoints %}
@@ -305,12 +313,12 @@
                         </label>
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md">
                     <label for="cropWidthSel" class="form-label fw-bold">{{ t('Crop width') }}</label>
                     <select id="cropWidthSel" class="form-select" title="{{ t('How the left and right edges of every box are decided.') }}">
                         <option value="auto" {% if width_mode_default == 'auto' %}selected{% endif %}>{{ t('Auto: printed frame, else uniform width') }}</option>
                         <option value="uniform" {% if width_mode_default == 'uniform' %}selected{% endif %}>{{ t('Uniform width per side (ignore frame)') }}</option>
-                        <option value="model" {% if width_mode_default == 'model' %}selected{% endif %}>{{ t("Model's own boxes") }}</option>
+                        <option value="model" id="cropWidthModelOpt" {% if width_mode_default == 'model' %}selected{% endif %}>{{ t("Model's own boxes") }}</option>
                     </select>
                     <div class="form-text" id="cropWidthHint">{{ t("Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box's width.") }}</div>
                 </div>
@@ -332,7 +340,7 @@
             </div>
             <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
                 <button id="btnRunDetect" class="btn btn-primary" {% if not ai_enabled or not endpoints %}disabled{% endif %} title="{{ t('Find every numbered question on every page (one model call per page). With Split questions into parts ticked, the part split runs straight after.') }}">
-                    <i class="bi bi-robot"></i> <span id="btnRunDetectLabel">{{ t('Detect questions') }}</span>
+                    <i class="bi bi-robot" id="btnRunDetectIcon"></i> <span id="btnRunDetectLabel">{{ t('Detect questions') }}</span>
                 </button>
                 <button id="btnSplitDetect" class="btn btn-outline-primary exam-only" disabled title="{{ t('Split the whole-question boxes into a stem and lettered parts (one model call per question page).') }}">
                     <i class="bi bi-scissors"></i> {{ t('Detect parts') }}
@@ -346,16 +354,8 @@
             </div>
             <div id="frameStatus" class="small text-muted mb-2 d-none"></div>
             <details class="mb-2" id="advancedDetect">
-                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-sliders"></i> {{ t('Advanced: detection method, custom prompt, debug') }}</summary>
+                <summary class="small text-muted" style="cursor:pointer;"><i class="bi bi-sliders"></i> {{ t('Advanced: custom prompt, debug') }}</summary>
                 <div class="row g-3 pt-2">
-                    <div class="col-md-6">
-                        <label for="methodSelect" class="form-label fw-bold small mb-1">{{ t('Detection method') }}</label>
-                        <select id="methodSelect" class="form-select form-select-sm">
-                            <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>{{ t('LLM only (model draws boxes)') }}</option>
-                            <option value="cv" {% if not numpy_available %}disabled{% endif %} {% if default_method == 'cv' %}selected{% endif %}>{{ t('Classical CV (no model call)') }}</option>
-                        </select>
-                        <div class="form-text">{{ t('Classical CV finds the printed question numbers and builds the boxes with no model call (needs NumPy). Low-confidence pages are flagged; the LLM runs only if you ask. Generic extraction stays on LLM only.') }}</div>
-                    </div>
                     <div class="col-md-6">
                         <div class="form-check exam-only">
                             <input class="form-check-input" type="checkbox" id="customPromptChk">
@@ -603,9 +603,8 @@ function applyTaskUI() {
         if ((generic || !NUMPY_OK) && methodSelect.value === 'cv') methodSelect.value = 'llm';
     }
     updateInstructionVisibility();
-    refreshDetectGate();
+    updateMethodUI();
     updateImportActions();
-    refreshDetectLabel();
 }
 function updateImportActions() {
     if (!importCard) return;
@@ -619,7 +618,7 @@ document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListene
     applyTaskUI();
 }));
 customPromptChk.addEventListener('change', updateInstructionVisibility);
-methodSelect.addEventListener('change', refreshDetectGate);
+methodSelect.addEventListener('change', updateMethodUI);
 document.getElementById('btnCvLlmFallback')?.addEventListener('click', () => { rerunLowWithLlm(); });
 // Crop width is review-time: switching conforms existing boxes to the new
 // policy (frame rails, then the shared uniform width); "model" leaves the
@@ -630,6 +629,7 @@ function cropWidthHintText(mode) {
     return OQB.t("Auto: pages with a printed frame (dashed green guide) take its edges; other pages share the widest box's width.");
 }
 cropWidthSel.addEventListener('change', () => {
+    if (cropWidthSel.value !== 'auto') cropWidthForcedFromModel = false;
     if (!uniformActive()) uniformWidth = { que: null, sol: null };
     ['que', 'sol'].forEach(applyWidthPolicy);
     document.querySelectorAll('.page-card').forEach(refreshCardFrameUI);
@@ -668,11 +668,55 @@ function updateFrameStatus() {
     el.classList.toggle('d-none', !parts.length);
 }
 // The detect button says whether the part split will run straight after.
+let cropWidthForcedFromModel = false;
+
 function refreshDetectLabel() {
     const lbl = document.getElementById('btnRunDetectLabel');
     if (!lbl) return;
+    const cv = cvMethodSelected();
     lbl.textContent = isGeneric() ? OQB.t('Detect regions')
         : (splitPartsChk && splitPartsChk.checked ? OQB.t('Detect questions + parts') : OQB.t('Detect questions'));
+    const icon = document.getElementById('btnRunDetectIcon');
+    if (icon) icon.className = 'bi ' + (cv ? 'bi-search' : 'bi-robot');
+    if (btnRunDetect) {
+        btnRunDetect.title = cv
+            ? OQB.t('Find every numbered question on every page from the printed numbers (no model call). With Split questions into parts ticked, the part split runs straight after.')
+            : OQB.t('Find every numbered question on every page (one model call per page). With Split questions into parts ticked, the part split runs straight after.');
+    }
+}
+
+function updateMethodUI() {
+    const cv = cvMethodSelected();
+    document.getElementById('endpointCol')?.classList.toggle('d-none', cv);
+    document.getElementById('advancedDetect')?.classList.toggle('d-none', cv);
+    const strip = document.getElementById('agentStrip');
+    if (strip) strip.classList.toggle('d-none', cv || isGeneric());
+    const modelOpt = document.getElementById('cropWidthModelOpt');
+    if (modelOpt) modelOpt.hidden = cv;
+    if (cv) {
+        if (customPromptChk && customPromptChk.checked) {
+            customPromptChk.checked = false;
+            updateInstructionVisibility();
+        }
+        if (cropWidthSel && cropWidthSel.value === 'model') {
+            cropWidthForcedFromModel = true;
+            cropWidthSel.value = 'auto';
+            cropWidthSel.dispatchEvent(new Event('change'));
+        }
+    } else if (cropWidthForcedFromModel && cropWidthSel) {
+        cropWidthForcedFromModel = false;
+        cropWidthSel.value = 'model';
+        cropWidthSel.dispatchEvent(new Event('change'));
+    }
+    refreshDetectLabel();
+    refreshDetectGate();
+    if (cv) {
+        const hint = document.getElementById('coordOrderHint');
+        if (hint) hint.textContent = '';
+    } else {
+        updateCoordOrderHint();
+    }
+    if (typeof refreshAgentBtn === 'function') refreshAgentBtn();
 }
 function updateCoordOrderHint() {
     const el = document.getElementById('coordOrderHint');
@@ -971,6 +1015,8 @@ function widthConstraintFor(kind, page) {
 // Each side stores {root_id, rel_path, name} from the unified file selector.
 const serverPdf = { que: null, sol: null };
 let guessing = false;
+let paperGuessPromise = null;
+let loadInFlight = false;
 
 function openServerPicker(target) {
     OQBFileSelector.open({
@@ -998,21 +1044,21 @@ function clearServerPick(side) {
 // Auto-fill the paper name from the chosen PDF when the field is still empty.
 // `src` is either {file: File} or {server_path: '...'}.
 function maybeGuessPaper(src) {
-    if (guessing) return;
-    if (currentTask() === 'generic') return;  // no paper in generic extraction
-    if (paperInput.value.trim()) return;  // never overwrite a typed value
+    if (currentTask() === 'generic') return null;  // no paper in generic extraction
+    if (paperInput.value.trim()) return null;  // never overwrite a typed value
+    if (paperGuessPromise) return paperGuessPromise;  // one guess at a time
     const hint = document.getElementById('paperGuessHint');
     const fd = new FormData();
-    if (src.file) fd.append('pdf', src.file);
-    else if (src.server_path) {
+    if (src && src.file) fd.append('pdf', src.file);
+    else if (src && src.server_path) {
         fd.append('server_path', src.server_path);
         if (src.server_root) fd.append('server_root', src.server_root);
     }
-    else return;
+    else return null;
 
     guessing = true;
     if (hint) hint.classList.remove('d-none');
-    fetch(`${IMPORT_BASE}/guess-paper`, { method: 'POST', body: fd })
+    paperGuessPromise = fetch(`${IMPORT_BASE}/guess-paper`, { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
             if (data.paper && !paperInput.value.trim()) {
@@ -1021,12 +1067,15 @@ function maybeGuessPaper(src) {
             } else if (!data.paper) {
                 appendLog(OQB.t('Could not auto-detect the paper name — please type it.'), 'info');
             }
+            return data.paper || '';
         })
-        .catch(() => { /* non-fatal — user types it manually */ })
+        .catch(() => '')  // non-fatal — user types it manually
         .finally(() => {
             guessing = false;
+            paperGuessPromise = null;
             if (hint) hint.classList.add('d-none');
         });
+    return paperGuessPromise;
 }
 
 // When a local file is chosen, clear that side's server pick and try a guess.
@@ -1605,15 +1654,23 @@ function setRunning(on, phase) {
 }
 
 async function loadPdf() {
+    if (loadInFlight) return;
+    loadInFlight = true;
+    try {
     const generic = currentTask() === 'generic';
-    const paper = paperInput.value.trim();
     const hasQue = quePdf.files.length || serverPdf.que;
     const hasSol = solPdf.files.length || serverPdf.sol;
-
-    if (!generic && !paper) { alert(OQB.t('Enter a paper name, e.g. MATC_DSE_2012_P1')); return; }
     if (!hasQue && !hasSol) {
         alert(OQB.t('Choose or pick a question PDF and/or a solution PDF.')); return;
     }
+    // A guess already in flight is the same request — do not start another,
+    // and do not wait at all when a name is already typed.
+    if (!generic && !paperInput.value.trim() && paperGuessPromise) {
+        appendLog(OQB.t('Waiting for the paper-name guess…'), 'info');
+        try { await paperGuessPromise; } catch (_) { /* non-fatal */ }
+    }
+    const paper = paperInput.value.trim();
+    if (!generic && !paper) { alert(OQB.t('Enter a paper name, e.g. MATC_DSE_2012_P1')); return; }
 
     if (staging) {
         if (!confirm(OQB.t('Loading again will discard the current session and any boxes you drew. Continue?'))) return;
@@ -1713,6 +1770,9 @@ async function loadPdf() {
     updateReviewSummary();
     updateCropWidthUI();
     bboxCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } finally {
+        loadInFlight = false;
+    }
 }
 
 function runDetect() {
@@ -1741,8 +1801,8 @@ function startDetect() {
     const url = `${IMPORT_BASE}/detect?token=${encodeURIComponent(staging.token)}`
         + `&endpoint_id=${encodeURIComponent(endpointSelect.value)}`
         + `&method=${encodeURIComponent(methodSelect.value)}`
-        + ((!pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '')
-        + (debugChk.checked ? '&debug=1' : '')
+        + ((!cvMethodSelected() && !pdfParallelWrap.classList.contains('d-none') && pdfParallelChk.checked) ? '&parallel=1' : '')
+        + ((debugChk.checked && !cvMethodSelected()) ? '&debug=1' : '')
         + (frameSnapActive() ? '&frame_snap=1' : '')
         + detectUrlExtras();
     eventSource = new EventSource(url);
@@ -3689,7 +3749,7 @@ async function rerunPage(card, kind, pageIndex) {
     try {
         const body = { token: staging.token, kind, index: pageIndex,
                        endpoint_id: pageEndpoint, method: pageMethod,
-                       debug: debugChk.checked, frame_snap: frameSnapActive() };
+                       debug: debugChk.checked && pageMethod !== 'cv', frame_snap: frameSnapActive() };
         const instr = instructionInput.value.trim();
         if (isGeneric() || customPromptChk.checked) body.instruction = instr;
         if (!isGeneric()) body.custom_prompt = customPromptChk.checked;

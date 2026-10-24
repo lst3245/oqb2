@@ -12,7 +12,9 @@ import numpy as np
 from PIL import Image
 
 from app.pdf_cv_detect import (
+    _window,
     detect_cv_page,
+    find_number_column,
     resolve_profile,
     score_boxes,
     suppress_indented_anchors,
@@ -149,6 +151,47 @@ class AnchorAndBoxTests(unittest.TestCase):
         self.assertEqual(out['boxes'], [])
         self.assertTrue(out['low'])
         self.assertIn('no_anchors', out['reasons'])
+
+    def test_wide_left_margin_skips_the_gutter(self):
+        # Digital HKEAA pages leave a wide blank margin, then a heading that
+        # crosses the indent. The vertical-gap search used to give up and
+        # return the empty gutter (no anchors).
+        gray = _page()
+        _bar(gray, 90, 280, 760, thick=10)
+        _digit(gray, 220, x=280)
+        _digit(gray, 520, x=280)
+        _digit(gray, 860, x=280)
+        for y in (220, 520, 860):
+            for i in range(3):
+                _bar(gray, y + i * 28, 460, 820, thick=8)
+        dark = gray < 200
+        nx0, nx1, ok = find_number_column(dark, *_window(H, W, None))
+        self.assertTrue(ok)
+        self.assertGreater(nx0, 200)
+        self.assertLess(nx1, 360)
+        out = detect_cv_page(
+            gray, frame=False, use_ocr=True,
+            ocr_reader=_ocr_by_y([(0.35, 1), (0.60, 2), (1.0, 3)]))
+        qnos = [b['qno'] for b in out['boxes'] if not b.get('continues_prev')]
+        self.assertEqual(qnos, [1, 2, 3])
+        self.assertNotIn('number_column_guessed', out['reasons'])
+        self.assertNotIn('qno_assumed', out['reasons'])
+        for b in out['boxes']:
+            self.assertGreater(b['box'][0], 0.20)
+            self.assertLess(b['box'][2], 0.98)
+
+    def test_number_alone_on_its_line_is_still_an_anchor(self):
+        # Some MC items print "4." on its own line and the stem further down.
+        gray = _page()
+        for y in (220, 520, 860):
+            _digit(gray, y, x=280)
+            _bar(gray, y + 48, 460, 820, thick=8)
+            _bar(gray, y + 80, 460, 760, thick=8)
+        out = detect_cv_page(
+            gray, frame=False, use_ocr=True,
+            ocr_reader=_ocr_by_y([(0.35, 4), (0.60, 5), (1.0, 6)]))
+        qnos = [b['qno'] for b in out['boxes'] if not b.get('continues_prev')]
+        self.assertEqual(qnos, [4, 5, 6])
 
 
 class PostRuleTests(unittest.TestCase):

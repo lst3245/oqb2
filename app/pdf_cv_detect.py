@@ -6,9 +6,10 @@ Classical (non-LLM) question detection for PDF Batch Import.
 1. Optionally deskews the staged page (the caller writes the straightened PNG
    so crops stay aligned).
 2. Uses the printed page frame when one exists.
-3. Finds question-start anchors in the left number column (projection +
-   digit-sized blobs). Optional local Tesseract reads those blobs; without it
-   the numbers are guessed 1..N and confidence stays low.
+3. Finds question-start anchors in the left number column (projection, then
+   a per-line gap search that skips a blank left gutter). Optional local
+   Tesseract reads those blobs; without it the numbers are guessed 1..N and
+   confidence stays low.
 4. Builds one box per anchor with :func:`app.pdf_layout.segment_page`, then
    snaps ink with :func:`app.pdf_layout.refine_box` without crossing the next
    anchor.
@@ -155,21 +156,41 @@ def _window(h, w, frame_box, margin=0.02):
     return x0, y0, x1, y1
 
 
-def find_number_column(dark, x0, y0, x1, y1):
-    """Return ``(nx0, nx1, confident)`` pixel bounds of the question-number column.
+def _dot_gap_px(width: int) -> int:
+    """Merge a digit and its following dot, not a word space."""
+    return max(4, int(width * 0.006))
 
-    The column is the leftmost narrow ink run inside the content window that
-    is separated from the stem by a clear vertical gap. Vertical rules are
-    ignored. When no gap is found, a left-hand strip is returned and
-    ``confident`` is False.
+
+def _number_gap_px(width: int) -> int:
+    """Indent between a question number and its stem.
+
+    Larger than a word space, smaller than the blank gutter of a digital
+    HKEAA page. ``width`` is the content window in pixels.
+    """
+    return max(8, int(width * 0.012))
+
+
+def _merged_mask_runs(mask, merge_gap: int):
+    """Inclusive runs of a 1-D bool mask, joining gaps of at most ``merge_gap``."""
+    return _merge_runs(_bool_runs(mask), merge_gap)
+
+
+def _first_content_column(col, thr: float = 0.006, min_run: int = 4) -> int:
+    """Skip an empty left gutter. ``col`` is a 1-D ink fraction."""
+    for a, b in _bool_runs(col > thr):
+        if b - a + 1 >= min_run:
+            return a
+    idx = (col > 0.001).nonzero()[0]
+    return int(idx[0]) if idx.size else 0
+
+
+def _projection_number_column(col, width, x0, x1):
+    """Leftmost narrow column with an empty vertical gap before the stem.
+
+    Returns ``(nx0, nx1)`` or ``None``. A heading that crosses the indent
+    fills this gap; the caller then tries :func:`_row_digit_column`.
     """
     np = _require_numpy()
-    sub = dark[y0:y1, x0:x1]
-    height, width = sub.shape
-    if height < 20 or width < 20:
-        return x0, x0 + max(8, width // 8), False
-    col = sub.mean(axis=0).astype(np.float64)
-    col[col > 0.35] = 0.0  # full-height rules are not a number column
     search_w = max(8, int(width * 0.32))
     search = np.convolve(col[:search_w], np.ones(3) / 3.0, mode='same')
     ink = search > 0.004
@@ -182,13 +203,138 @@ def find_number_column(dark, x0, y0, x1, y1):
         gap = gap_at - (b + 1)
         if gap < min_gap:
             continue
-        # Stem ink should resume after the gap (inside the search, or just past it).
         after = col[gap_at:min(width, gap_at + max(12, int(width * 0.08)))]
         if after.size == 0 or float(after.mean()) <= 0.003:
             continue
-        return x0 + a, x0 + b + 1, True
-    fallback = max(8, int(width * 0.11))
-    return x0, min(x1, x0 + fallback), False
+        return x0 + a, min(x1, x0 + b + 1)
+    return None
+
+
+def _row_digit_column(dark, x0, y0, x1, y1):
+    """Digit column from per-line gaps, ignoring a blank gutter and headings.
+
+    A question line is a narrow blob, then a clear gap, then the stem. A
+    section heading that starts in the same x and runs across the indent has
+    no such gap, so it does not vote. The leftmost digit-tall cluster wins
+    (option letters sit further right). Returns ``(nx0, nx1)`` or ``None``.
+    """
+    h = dark.shape[0]
+    width = x1 - x0
+    if width < 40 or y1 - y0 < 20:
+        return None
+    dot_gap = _dot_gap_px(width)
+    min_gap = _number_gap_px(width)
+    max_w = max(16, int(width * 0.06))
+    search_w = max(24, int(width * 0.45))
+    min_run = max(6, int(0.006 * h))
+    votes = []  # (y, abs_a, abs_b)
+    ys = dark[y0:y1, x0:x0 + search_w].any(axis=1).nonzero()[0]
+    for rel_y in ys.tolist():
+        y = y0 + int(rel_y)
+        row = dark[y, x0:x0 + search_w]
+        runs = _merged_mask_runs(row, dot_gap)
+        if not runs:
+            continue
+        a, b = runs[0]
+        if b - a + 1 > max_w or b - a + 1 < 3:
+            continue
+        if len(runs) > 1:
+            gap = runs[1][0] - b - 1
+        else:
+            rest = dark[y, x0 + b + 1:x1]
+            nxt = rest.nonzero()[0]
+            if nxt.size == 0:
+                continue
+            gap = int(nxt[0])
+        if gap < min_gap:
+            continue
+        votes.append((y, x0 + a, x0 + b + 1))
+    if not votes:
+        return None
+    # Question numbers are the leftmost column of digit-tall blobs. Option
+    # letters (A. B. C. D.) match the same gap but sit further right, and a
+    # short heading fragment must not stretch the column into the stem.
+    link = max(18, int(width * 0.012))
+    clusters = []
+    for vote in sorted(votes, key=lambda v: (v[1], v[0])):
+        placed = False
+        for cl in clusters:
+            if abs(vote[1] - cl[0]) <= link:
+                cl[1].append(vote)
+                starts = sorted(v[1] for v in cl[1])
+                cl[0] = starts[len(starts) // 2]
+                placed = True
+                break
+        if not placed:
+            clusters.append([vote[1], [vote]])
+    chosen = None
+    for med, items in clusters:
+        items.sort()
+        tall = []
+        cur = [items[0]]
+        for vote in items[1:]:
+            if vote[0] <= cur[-1][0] + 2:
+                cur.append(vote)
+            else:
+                span = cur[-1][0] - cur[0][0] + 1
+                if span >= min_run and len(cur) >= max(6, span // 2):
+                    tall.append(cur)
+                cur = [vote]
+        span = cur[-1][0] - cur[0][0] + 1
+        if span >= min_run and len(cur) >= max(6, span // 2):
+            tall.append(cur)
+        if not tall:
+            continue
+        if chosen is None or med < chosen[0]:
+            chosen = (med, tall)
+    if chosen is None:
+        return None
+    tall_votes = [v for run in chosen[1] for v in run]
+    pad = max(4, int(width * 0.008))
+    nx0 = min(v[1] for v in tall_votes) - 2
+    nx1 = max(v[2] for v in tall_votes) + pad
+    return max(x0, nx0), min(x1, nx1)
+
+
+def _band_has_number_gap(dark, y_a, y_b, nx0, x_right, content_w) -> bool:
+    """True when this band is a narrow number plus a gap, not a heading."""
+    if y_b < y_a or x_right - nx0 < 4 or content_w < 20:
+        return False
+    present = dark[y_a:y_b + 1, nx0:x_right].any(axis=0)
+    runs = _merged_mask_runs(present, _dot_gap_px(content_w))
+    if len(runs) < 2:
+        return False
+    a, b = runs[0]
+    if b - a + 1 > max(16, int(content_w * 0.06)):
+        return False
+    return (runs[1][0] - b - 1) >= _number_gap_px(content_w)
+
+
+def find_number_column(dark, x0, y0, x1, y1):
+    """Return ``(nx0, nx1, confident)`` pixel bounds of the question-number column.
+
+    Prefers a narrow ink run separated from the stem by a clear vertical gap
+    (vertical rules ignored). When a heading crosses that gap, per-line gaps
+    lock onto the digit column and skip an empty left gutter. Otherwise the
+    fallback strip starts at the first real ink, not at the page edge, and
+    ``confident`` is False.
+    """
+    np = _require_numpy()
+    sub = dark[y0:y1, x0:x1]
+    height, width = sub.shape
+    if height < 20 or width < 20:
+        return x0, x0 + max(8, width // 8), False
+    col = sub.mean(axis=0).astype(np.float64)
+    col[col > 0.35] = 0.0  # full-height rules are not a number column
+    found = _projection_number_column(col, width, x0, x1)
+    if found:
+        return found[0], found[1], True
+    voted = _row_digit_column(dark, x0, y0, x1, y1)
+    if voted and voted[1] - voted[0] >= 4:
+        return voted[0], voted[1], True
+    start = _first_content_column(col)
+    fallback = max(12, int(width * 0.08))
+    return x0 + start, min(x1, x0 + start + fallback), False
 
 
 def _count_blobs(mask, limit: int = 12) -> int:
@@ -229,7 +375,10 @@ def find_question_anchors(dark, x0, y0, x1, y1, nx0, nx1):
     if nx1 - nx0 < 3 or y1 - y0 < 8:
         return []
     strip = dark[y0:y1, nx0:nx1]
-    row_ink = strip.sum(axis=1) >= max(4, int(0.12 * strip.shape[1]))
+    # A printed digit is only a few dark pixels wide, and a "5" can thin out
+    # mid-glyph. 12% of the column splits it below the minimum line height.
+    row_need = 3
+    row_ink = strip.sum(axis=1) >= row_need
     runs = _merge_runs(_bool_runs(row_ink), gap=3)
     content_w = max(1, x1 - x0)
     anchors = []
@@ -247,18 +396,34 @@ def find_question_anchors(dark, x0, y0, x1, y1, nx0, nx1):
             cols = band[r].nonzero()[0]
             row_span.append(0 if cols.size == 0 else int(cols[-1] - cols[0] + 1))
         med_span = float(np.median(row_span)) if row_span else 0.0
-        if height <= int(0.012 * h) and med_span > 0.55 * content_w:
+        # A hairline rule, not a line of body text. 1.2% of a 3500 px page
+        # is taller than the type, so the cutoff is the ruling thickness.
+        if height <= _rule_run_px(h) and med_span > 0.55 * content_w:
             continue  # ruling through the number column
         cols = band.any(axis=0).nonzero()[0]
         if cols.size == 0:
             continue
         left_gap = float(cols[0]) / content_w
         right_gap = float(content_w - 1 - cols[-1]) / content_w
-        if left_gap > 0.15 and right_gap > 0.12:
+        # A digit in the number column has a wide gutter to its left on a
+        # digital page; that is not a centred heading. A heading whose ink
+        # does not sit in the column never reaches this loop.
+        ink_left = x0 + int(cols[0])
+        in_column = ink_left <= nx1
+        if (not in_column) and left_gap > 0.15 and right_gap > 0.12:
             continue  # centred section header
         body = dark[y0 + a:y0 + b + 1, nx1:x1]
-        if body.size == 0 or int(body.sum()) < 12:
-            continue
+        body_ink = int(body.sum()) if body.size else 0
+        if body_ink >= 12:
+            # Heading text that starts in the column has no indent gap.
+            if not _band_has_number_gap(dark, y0 + a, y0 + b, nx0, x1, content_w):
+                continue
+        else:
+            # The number is on its own line (the stem starts further down).
+            look = min(y1, y0 + b + 1 + max(24, int(0.18 * h)))
+            below = dark[y0 + b + 1:look, x0:x1]
+            if below.size == 0 or int(below.sum()) < 30:
+                continue
         piece = strip[a:b + 1]
         blobs = _count_blobs(piece, limit=8)
         if blobs < 1 or blobs > 8:
@@ -740,9 +905,20 @@ def _apply_x(box, frame_box, frame_inset, nx0, page_w, shrink_sides, pad_frac, c
             return [left, y1, right, y2]
     if shrink_sides:
         num_left = max(0.0, (nx0 / page_w) - pad_frac)
-        # Never move the left edge onto the indented stem. The right edge
-        # may stay at the snapped ink, but not left of the number column.
-        return [min(x1, num_left), y1, max(x2, min(0.98, content_right)), y2]
+        right = min(0.98, content_right)
+        # segment_page is full-bleed, so a box still on the page edge is the
+        # gutter, not ink. Sit it on the number column and the content.
+        # A tighter box is only pulled left as far as the number column —
+        # never onto the indented stem — and is not left short of the content.
+        if x1 < num_left - 0.01:
+            x1 = num_left
+        else:
+            x1 = min(x1, num_left)
+        if x2 > right + 0.01:
+            x2 = right
+        else:
+            x2 = max(x2, right)
+        return [x1, y1, x2, y2]
     # SOL / full width: the content window, not the ink bbox.
     return [max(0.0, (nx0 / page_w) - pad_frac), y1, min(1.0, content_right), y2]
 
