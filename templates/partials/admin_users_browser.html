@@ -33,6 +33,15 @@
                 {% endfor %}
             </select>
         </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="users-group">{{ t('Group') }}</label>
+            <select class="form-select form-select-sm" id="users-group" name="group">
+                <option value="">{{ t('Any group') }}</option>
+                {% for g in groups %}
+                <option value="{{ g.id }}" {% if filters.group == g.id %}selected{% endif %}>{{ g.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="col-auto">
             <div class="form-check mb-1">
                 <input class="form-check-input" type="checkbox" name="super" value="1" id="users-super" {% if filters['super'] %}checked{% endif %}>
@@ -76,7 +85,7 @@
             {% else %}
             <tr>
                 <td colspan="6" class="text-muted">
-                    {% if filters.q or filters.source != 'all' or filters['super'] or filters.subject or filters.status != 'all' %}
+                    {% if filters.q or filters.source != 'all' or filters['super'] or filters.subject or filters.group or filters.status != 'all' %}
                     {{ t('No users match these filters.') }}
                     {% else %}
                     {{ t('No users found. Click "Add User" to create one.') }}

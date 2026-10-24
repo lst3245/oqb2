@@ -6,7 +6,8 @@ the account and everything it owns, in one transaction:
 
 * deleted: generated files (+ PDF siblings on disk), My Files sections,
   search profiles, generation presets and question sets (shared ones too),
-  file shares on either side, subject permissions, SMS links and levels;
+  file shares on either side, subject permissions, group memberships
+  (the group itself stays), SMS links and levels;
 * set to NULL: "who did it" columns elsewhere (``NULL_REFS``);
 * kept: every ``auth_audit_log`` row, plus a new ``user_deleted`` row.
 
@@ -28,7 +29,7 @@ from app.models import (
     ExternalIdentity, FileSection, FileShare, GeneratedFile, PromptOverride, PromptVariant,
     Question, SavedFilter, SavedGenerationProfile, SavedQuestionSet, SmsSnapshot, SmsSubjectMap,
     SmsTrustIssuer, SmsTrustKey, SubjectPromptNote, SubjectRestorePoint, SystemSetting,
-    TagCorrection, User, UserSmsLevel, UserSubjectPermission,
+    TagCorrection, User, UserGroupMember, UserSmsLevel, UserSubjectPermission,
 )
 
 IN_PROGRESS = ('pending', 'generating')
@@ -58,6 +59,7 @@ OWNED = (
 )
 LINKS = (
     ('subject_permissions', UserSubjectPermission.__table__),
+    ('group_memberships', UserGroupMember.__table__),
     ('sms_levels', UserSmsLevel.__table__),
     ('sms_identities', ExternalIdentity.__table__),
 )

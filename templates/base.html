@@ -531,6 +531,7 @@
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.subjects') }}"><i class="bi bi-mortarboard"></i> {{ t('Manage Subjects') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="bi bi-people"></i> {{ t('Manage Users') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('groups_admin.index') }}"><i class="bi bi-people-fill"></i> {{ t('User Groups') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('sms_admin.index') }}"><i class="bi bi-box-arrow-in-right"></i> {{ t('SMS sign-in') }}{% if _sms_alerts %} <span class="badge rounded-pill bg-danger">{{ _sms_alerts }}</span>{% endif %}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.health') }}"><i class="bi bi-heart-pulse"></i> {{ t('Database Health') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.files') }}"><i class="bi bi-folder2-open"></i> {{ t('File Browser') }}</a></li>

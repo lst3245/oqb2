@@ -1,7 +1,7 @@
 """Pure tests for the effective-level math (app/authz.compute_levels)."""
 import unittest
 
-from app.authz import LEVEL_RANK, compute_levels, rank
+from app.authz import LEVEL_RANK, compute_levels, highest_grant, rank
 
 V, U, A = LEVEL_RANK['viewer'], LEVEL_RANK['user'], LEVEL_RANK['admin']
 ALL = ('MATC', 'MAT1', 'ICT', 'ECON')
@@ -80,6 +80,48 @@ class ComputeLevelsTests(unittest.TestCase):
                              sms_defaults=[('https://sms.school', 'admin')],
                              all_subjects=ALL)
         self.assertEqual(out, {'ECON': U})
+
+    def test_group_raises_a_subject_with_no_personal_grant(self):
+        out = compute_levels(local={}, groups={'ICT': 'user'})
+        self.assertEqual(out, {'ICT': U})
+
+    def test_lower_group_does_not_beat_personal_or_sms(self):
+        out = compute_levels(
+            local={'ICT': 'admin'},
+            groups={'ICT': 'viewer', 'MATC': 'user'},
+            sms_subjects=[('https://sms.school', 'uuid-ict', 'user')],
+            mapping={'uuid-ict': ['ICT']}, issuer_caps=PRIMARY)
+        self.assertEqual(out['ICT'], A)
+        self.assertEqual(out['MATC'], U)
+
+    def test_group_does_not_lower_sms(self):
+        out = compute_levels(
+            local={}, groups={'ICT': 'viewer'},
+            sms_subjects=[('https://sms.school', 'uuid-ict', 'admin')],
+            mapping={'uuid-ict': ['ICT']}, issuer_caps=PRIMARY)
+        self.assertEqual(out, {'ICT': A})
+
+    def test_unknown_group_role_is_ignored(self):
+        out = compute_levels(local={'ICT': 'viewer'}, groups={'ICT': 'bogus', 'MATC': 'nope'})
+        self.assertEqual(out, {'ICT': V})
+
+    def test_omitting_groups_matches_personal_only(self):
+        self.assertEqual(compute_levels(local={'ICT': 'user'}),
+                         compute_levels(local={'ICT': 'user'}, groups=None))
+
+
+class HighestGrantTests(unittest.TestCase):
+    def test_two_groups_take_the_higher_role(self):
+        self.assertEqual(
+            highest_grant({'ICT': 'viewer', 'MATC': 'admin'}, {'ICT': 'user', 'ECON': 'viewer'}),
+            {'ICT': 'user', 'MATC': 'admin', 'ECON': 'viewer'})
+
+    def test_unknown_roles_are_dropped(self):
+        self.assertEqual(highest_grant({'ICT': 'bogus'}, {'MATC': ''}), {})
+
+    def test_empty_maps(self):
+        self.assertEqual(highest_grant(), {})
+        self.assertEqual(highest_grant({}, None), {})
 
 
 if __name__ == '__main__':

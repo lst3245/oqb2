@@ -2,10 +2,12 @@
 and helper uses (docs/core/02-auth-and-permissions.md, ADR-019).
 
 Level on OQB subject S = the highest of
-  * the local grant on S (``user_subject_permissions``),
+  * the personal grant on S (``user_subject_permissions``),
+  * the highest role of every user group the person belongs to,
   * the SMS ``default_level`` (every subject),
   * the level of every SMS subject mapped to S,
-with the issuer's level cap applied. Super admin (``users.is_super_admin``,
+with the issuer's level cap applied. A group never lowers another source
+and never grants super admin. Super admin (``users.is_super_admin``,
 local only) is ``admin`` everywhere. Levels are read from the DB once per
 request and cached on ``flask.g``; never stored in the session.
 """
@@ -37,17 +39,31 @@ def rank(level) -> int:
     return LEVEL_RANK.get(level or 'none', 0)
 
 
+def highest_grant(*maps: Mapping[str, str]) -> dict[str, str]:
+    """Highest known role per subject across the maps. Unknown and empty
+    roles are dropped, so they never lower a real grant."""
+    out: dict[str, str] = {}
+    for mapping in maps:
+        for sid, level in (mapping or {}).items():
+            if rank(level) > rank(out.get(sid)):
+                out[sid] = level
+    return out
+
+
 def compute_levels(*, local: Mapping[str, str],
+                   groups: Mapping[str, str] | None = None,
                    sms_defaults: Iterable[tuple[str, str]] = (),
                    sms_subjects: Iterable[tuple[str, str, str]] = (),
                    mapping: Mapping[str, Iterable[str]] | None = None,
                    all_subjects: Iterable[str] = (),
                    issuer_caps: Mapping[str, bool] | None = None) -> dict[str, int]:
-    """Pure level math. ``sms_defaults`` are ``(issuer, level)``,
-    ``sms_subjects`` ``(issuer, sms_uuid, level)``, ``mapping`` maps an SMS
-    uuid to OQB subject ids. ``issuer_caps`` lists the issuers whose rows
-    count (``True`` = capped non-primary); rows from any other issuer are
-    ignored. Returns ``{subject_id: rank}`` for ranks above ``none``."""
+    """Pure level math. ``groups`` is the highest role per subject already
+    folded across the user's groups (``highest_grant``). ``sms_defaults``
+    are ``(issuer, level)``, ``sms_subjects`` ``(issuer, sms_uuid, level)``,
+    ``mapping`` maps an SMS uuid to OQB subject ids. ``issuer_caps`` lists
+    the issuers whose rows count (``True`` = capped non-primary); rows from
+    any other issuer are ignored. Omitting ``groups`` keeps the previous
+    result. Returns ``{subject_id: rank}`` for ranks above ``none``."""
     caps = issuer_caps or {}
     mapping = mapping or {}
     out: dict[str, int] = {}
@@ -57,6 +73,8 @@ def compute_levels(*, local: Mapping[str, str],
             out[sid] = r
 
     for sid, level in local.items():
+        bump(sid, rank(level))
+    for sid, level in (groups or {}).items():
         bump(sid, rank(level))
     subjects = list(all_subjects)
     for issuer, level in sms_defaults:
@@ -119,6 +137,29 @@ def _sms_inputs(user) -> dict:
         return {}
 
 
+def _group_grants(user_id) -> dict[str, str]:
+    """Highest role per subject from the user's groups. Any failure leaves
+    personal grants and SMS as the only sources (the tables are created at
+    boot; a missing table must not lock the account out)."""
+    try:
+        from app import db
+        from app.models import UserGroupMember, UserGroupPermission
+        rows = (db.session.query(UserGroupPermission.subject_id, UserGroupPermission.role)
+                .join(UserGroupMember, UserGroupMember.group_id == UserGroupPermission.group_id)
+                .filter(UserGroupMember.user_id == user_id)
+                .all())
+    except Exception as exc:
+        log.error('authz: group grants unavailable (%s); personal and SMS only',
+                  exc.__class__.__name__)
+        try:
+            from app import db
+            db.session.rollback()
+        except Exception:
+            pass
+        return {}
+    return highest_grant(*({sid: role} for sid, role in rows))
+
+
 def _load_levels(user) -> dict[str, str]:
     from app import db
     from app.models import Subject, UserSubjectPermission
@@ -130,7 +171,7 @@ def _load_levels(user) -> dict[str, str]:
         db.session.query(UserSubjectPermission.subject_id, UserSubjectPermission.role)
         .filter(UserSubjectPermission.user_id == user.id)
     )
-    ranks = compute_levels(local=local, **_sms_inputs(user))
+    ranks = compute_levels(local=local, groups=_group_grants(user.id), **_sms_inputs(user))
     return {sid: RANK_LEVEL[r] for sid, r in ranks.items()}
 
 

@@ -24,7 +24,7 @@ Options considered:
 
 ## Consequences
 
-- A new level source (stage 2) changes `authz._sms_inputs` and nothing else.
+- A new level source (stage 2) changes `authz._sms_inputs` and nothing else. User groups ([ADR-020](ADR-020-user-groups.md)) are a later source: a `groups` argument on `compute_levels`, loaded in `_load_levels` and in `users_directory._ranks`.
 - Routes that relied on the pass-through now need an explicit check; all routes that carry the decorators pass `subject_id` in the URL, so none changed behaviour.
 - Generation requires `user` level on each question's subject; a viewer grant on one subject plus a user grant on another no longer lets a teacher generate from the viewer subject.
 - One extra grant query per request per user (cached), plus one `Subject` query for super admins.

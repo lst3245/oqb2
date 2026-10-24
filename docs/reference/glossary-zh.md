@@ -91,6 +91,7 @@ Conventions:
 | Database | 資料庫 | |
 | Health / Sync / Dry run | 健康檢查 / 同步 / 試行 | |
 | Permission / Role | 權限 / 角色 | View Only 僅檢視 |
+| User group | 用戶群組 | Group 群組; effective level 實際權限 |
 | Crop / Bounding box | 裁剪 / 框選範圍 | |
 | Redact / Highlight | 遮蓋 / 螢光標示 | |
 | Pen / Eraser / Undo / Redo | 筆 / 橡皮擦 / 復原 / 重做 | |

@@ -67,6 +67,7 @@ def create_app():
     from app.sso import sso_bp
     from app.sms_admin import sms_admin_bp
     from app.account_admin import account_admin_bp
+    from app.groups_admin import groups_admin_bp
     from app import csrf, web_security
 
     web_security.init_app(app)
@@ -77,6 +78,7 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(sms_admin_bp)
     app.register_blueprint(account_admin_bp)
+    app.register_blueprint(groups_admin_bp)
     app.register_blueprint(generator_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(toolbox_bp)
@@ -650,6 +652,18 @@ def create_app():
         except Exception:
             app.logger.exception(
                 'question_assets file_path slash normalisation failed')
+
+        # User groups (docs/modules/user-groups.md). Members inherit the
+        # highest per-subject role; effective access still goes through
+        # authz.compute_levels. checkfirst is a no-op once the tables exist.
+        # Parent table first: the other two reference user_groups.id.
+        try:
+            from app.models import UserGroup, UserGroupMember, UserGroupPermission
+            UserGroup.__table__.create(db.engine, checkfirst=True)
+            UserGroupPermission.__table__.create(db.engine, checkfirst=True)
+            UserGroupMember.__table__.create(db.engine, checkfirst=True)
+        except Exception:
+            app.logger.exception('user group tables were not created')
 
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing

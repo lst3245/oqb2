@@ -84,8 +84,8 @@ class User(UserMixin, db.Model):
             return False
         return check_password_hash(self.password_hash, password)
 
-    # Every helper below reads the effective level (app/authz.py), which
-    # combines local grants with SMS-sourced levels.
+    # Every helper below reads the effective level (app/authz.py): the
+    # highest of the personal grant, the user's groups and SMS levels.
 
     def has_subject_access(self, subject_id):
         """Any access (viewer, user or admin) to a subject."""
@@ -158,6 +158,53 @@ class UserSubjectPermission(db.Model):
     
     def __repr__(self):
         return f'<UserSubjectPermission {self.user_id} - {self.subject_id}: {self.role}>'
+
+
+class UserGroup(db.Model):
+    """Named set of per-subject roles. Members inherit the highest role
+    across every group they belong to. A group never lowers a personal
+    grant or an SMS level, and it never grants super admin.
+    See docs/modules/user-groups.md."""
+    __tablename__ = 'user_groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    description = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f'<UserGroup {self.name}>'
+
+
+class UserGroupPermission(db.Model):
+    """One role on one subject, granted by a group (not by a person)."""
+    __tablename__ = 'user_group_permissions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('user_groups.id', ondelete='CASCADE'),
+                         nullable=False)
+    # No ON DELETE from subjects: delete_subject removes these rows first,
+    # the same way it removes user_subject_permissions.
+    subject_id = db.Column(db.String(10), db.ForeignKey('subjects.id'), nullable=False, index=True)
+    role = db.Column(db.String(10), nullable=False)  # 'viewer', 'user', or 'admin'
+
+    __table_args__ = (db.UniqueConstraint('group_id', 'subject_id', name='uq_group_subject'),)
+
+    def __repr__(self):
+        return f'<UserGroupPermission {self.group_id} - {self.subject_id}: {self.role}>'
+
+
+class UserGroupMember(db.Model):
+    """Membership only. Erasing a user deletes these rows; the group stays."""
+    __tablename__ = 'user_group_members'
+
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('user_groups.id', ondelete='CASCADE'),
+                         primary_key=True, index=True)
+
+    def __repr__(self):
+        return f'<UserGroupMember {self.user_id} in {self.group_id}>'
+
 
 class Subject(db.Model):
     """Subject model (MATC, MAT1, MAT2, ICT, etc.)"""

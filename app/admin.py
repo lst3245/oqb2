@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 from app import db
 from app import word_com
 from app.models import (Subject, Topic, Subtopic, Question, QuestionAsset, Chapter, Subchapter,
-                        User, UserSubjectPermission, SavedFilter, SavedQuestionSet)
+                        User, UserGroupPermission, UserSubjectPermission, SavedFilter, SavedQuestionSet)
 from app.utils import (admin_required, super_admin_required, subject_admin_required,
                        get_user_admin_subjects,
                        VERSIONS, VERSION_LABELS, TYPED_VERSIONS, utc_iso,
@@ -28,6 +28,7 @@ from app import storage
 from app import subject_snapshot
 from app import marks_spacing
 from app import user_erase
+from app import user_groups
 from app import users_directory
 from app.i18n import display_name, build_name_index, lookup_name, t as _t
 from app.tax_numbers import numbered_name
@@ -229,7 +230,7 @@ def delete_subject(subject_id):
 
     Blocked if any question still references it. Otherwise cascades cleanup of
     everything tied to the subject: saved question sets, stale saved filters
-    (matched via JSON), user permissions, and (via SQLAlchemy cascade) topics /
+    (matched via JSON), personal and group permissions, and (via SQLAlchemy cascade) topics /
     subtopics / chapters / subchapters.
     """
     subject = Subject.query.get_or_404(subject_id)
@@ -253,6 +254,8 @@ def delete_subject(subject_id):
 
         # User permissions for this subject (FK, no cascade configured).
         UserSubjectPermission.query.filter_by(subject_id=subject.id).delete(
+            synchronize_session=False)
+        UserGroupPermission.query.filter_by(subject_id=subject.id).delete(
             synchronize_session=False)
 
         # Restore points (no FK — keyed by subject id only).
@@ -4272,10 +4275,38 @@ def get_user_permissions(user_id):
 @login_required
 @super_admin_required
 def user_permissions_panel(user_id):
-    """Offcanvas body: local grants, read-only SMS levels, effective level."""
+    """Offcanvas body: personal grants, group grants, SMS levels, effective level."""
     user = User.query.get_or_404(user_id)
     return render_template('partials/admin_user_permissions.html',
                            **users_directory.permission_panel(user))
+
+
+@admin_bp.route('/users/<int:user_id>/groups', methods=['POST'])
+@login_required
+@super_admin_required
+def update_user_groups(user_id):
+    """Replace the groups this user belongs to. JSON ``{group_ids: [...]}``.
+
+    Personal grants and SMS levels are unchanged. An empty list clears
+    membership. Does not bump the session: levels are read on the next request.
+    """
+    user = User.query.get_or_404(user_id)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or 'group_ids' not in data:
+        return jsonify({'error': _t('Choose groups from the list.')}), 400
+    try:
+        user_groups.set_user_groups(user, data.get('group_ids'))
+        db.session.commit()
+    except user_groups.GroupError as exc:
+        db.session.rollback()
+        from app.groups_admin import _group_error
+        return jsonify({'error': _group_error(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('user %s group membership failed', user_id)
+        return jsonify({'error': _t('Could not update group membership.')}), 500
+    authz.invalidate(user)
+    return jsonify({'success': True})
 
 
 @admin_bp.route('/users/<int:user_id>/row')

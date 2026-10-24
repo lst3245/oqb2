@@ -165,9 +165,11 @@ Each user has a permission level for each subject independently:
 3. Save, then open **Permissions…** on that user's row and set each subject
 
 ### Editing Permissions
-The page is a table: search, filter (status, local / SMS-linked / JIT, super admins, subject), and 25 users per page. Disabled accounts are hidden until you choose **Show disabled**. The Access column is the effective level (local permission and SMS level, whichever is higher).
+The page is a table: search, filter (status, local / SMS-linked / JIT, super admins, subject, group), and 25 users per page. Disabled accounts are hidden until you choose **Show disabled**. The Access column is the effective level: the highest of the personal permission, every group the person belongs to, and the SMS level.
 
-Open **Permissions…** on a row. The side panel lists every subject: the local permission (saves immediately, one subject at a time), the SMS level (read-only), and the effective level.
+Open **Permissions…** on a row. The side panel lists every subject: the personal permission (saves immediately, one subject at a time), the level inherited from groups (read-only), the SMS level (read-only), and the effective level. Tick **Groups** and press **Save groups** to change which groups this person belongs to.
+
+**User Groups** (Admin menu, or the button on this page) is where you define a group: a name, a role on each subject, and the people in it. A person can be in several groups. On each subject they receive the highest role any of those groups grants. A group never removes a personal permission or an SMS level, and it cannot make someone a super admin. Deleting a group removes only what people inherited from it.
 
 ### Changing your own password
 On your own row, click **Change password**, enter the new password, and save. Your username and super-admin role stay as they are. You cannot delete your own account.
@@ -181,7 +183,7 @@ On your own row, click **Change password**, enter the new password, and save. Yo
 ### SMS sign-in (when enabled)
 Staff can sign in from the school SMS (System Settings → **SMS sign-in**: `SMS_SSO_ENABLED`, `SMS_LOGIN_BUTTON_ENABLED` shows **Sign in with SMS** on the login page, `SMS_JIT_ENABLED`, feed keys). Deployment, key pinning and the workshop test window are in [SMS_SSO_DEPLOYMENT.md](SMS_SSO_DEPLOYMENT.md).
 
-- A teacher's level on a subject is the **higher** of the grant you set here and their SMS level (SMS role → default level; SMS subjects mapped to OQB subjects). SMS levels are never written into these dropdowns, and disappear when SMS sign-in is switched off.
+- A teacher's level on a subject is the **highest** of the personal grant, every user group they belong to, and their SMS level (SMS role → default level; SMS subjects mapped to OQB subjects). SMS levels are never written into the personal dropdowns or into a group, and they disappear when SMS sign-in is switched off. A group never lowers the SMS level.
 - An SMS-linked user cannot be made super admin, and a super admin can never be linked or sign in through SMS — keep a password-only break-glass super admin.
 - Sessions: SMS sign-ins end after 12 hours, or 2 hours without activity, and are never remembered. Password sign-ins follow the same limits (System Settings → **Sign-in and sessions** → `PASSWORD_SESSION_LIMITS`) unless the user ticked **Remember me** (only offered to accounts not linked to SMS; at most `PASSWORD_REMEMBER_DAYS`). Linking an account cancels its remember-me at the next click. Logging out is a button (POST); it signs out of OQB only.
 - **Admin → SMS sign-in** (super admins; the Admin menu shows a red badge while alerts are open) has six tabs: **Overview** (switches, primary issuer and key, counts, warnings — e.g. no password super admin, a test issuer still enabled), **Subject mapping** (map each SMS subject to one or more OQB subjects; unmapped ones are highlighted and grant nothing beyond the default level), **Linking** (the SMS staff list with suggested OQB accounts, a form to link by typing the issuer and SMS `sub`, and every linked account with Unlink), **Snapshots** (approve or discard a held push), **Trust list** (pin / unpin keys after checking the fingerprint, settings, open / close a workshop test window), **Audit and alerts** (every sign-in, link, push and trust change; acknowledge alerts).

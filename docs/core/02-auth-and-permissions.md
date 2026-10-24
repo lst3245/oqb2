@@ -21,7 +21,7 @@
 
 ## Roles and effective level
 
-Each user has an **effective level** per subject, computed by `authz.effective_levels(user)` once per request (cached on `flask.g`, never in the session): the highest of the local grant (`user_subject_permissions.role`), the SMS `default_level` and the levels of SMS subjects mapped to that OQB subject, with the non-primary issuer cap (default ≤ viewer, subject ≤ user). SMS levels live in `user_sms_levels` (replaced on every handoff for that issuer, never merged into `user_subject_permissions`) and count only while `SMS_SSO_ENABLED` is on, the SSO schema is ready and the issuer is active on the trust list; any error reading them falls back to local grants only ([../modules/sms-sso.md](../modules/sms-sso.md)). SMS `admin` is per-subject admin, never super admin. The pure math is `authz.compute_levels`. A disabled account has no level anywhere. Super admin is `admin` on every subject.
+Each user has an **effective level** per subject, computed by `authz.effective_levels(user)` once per request (cached on `flask.g`, never in the session): the highest of the personal grant (`user_subject_permissions.role`), the highest role of every user group the person belongs to (`user_group_permissions`, via `authz.highest_grant`), the SMS `default_level` and the levels of SMS subjects mapped to that OQB subject, with the non-primary issuer cap (default ≤ viewer, subject ≤ user). A group never lowers a personal grant or an SMS level, and it never grants super admin ([../modules/user-groups.md](../modules/user-groups.md), [ADR-020](../decisions/ADR-020-user-groups.md)). SMS levels live in `user_sms_levels` (replaced on every handoff for that issuer, never merged into `user_subject_permissions` or into a group) and count only while `SMS_SSO_ENABLED` is on, the SSO schema is ready and the issuer is active on the trust list; any error reading them falls back to personal grants and groups only ([../modules/sms-sso.md](../modules/sms-sso.md)). SMS `admin` is per-subject admin, never super admin. The pure math is `authz.compute_levels` (`groups=` is the folded group map; omitting it leaves older callers unchanged). A disabled account has no level anywhere. Super admin is `admin` on every subject.
 
 Tiers, evaluated in this order:
 
@@ -33,6 +33,8 @@ Tiers, evaluated in this order:
 | **Viewer** | `role = 'viewer'` | Browse only. Cannot generate (`can_generate()` false), excluded from the File Browser and the Shared folders. |
 | (no row) | — | No access to that subject at all. |
 
+The same viewer / user / admin role can come from a personal grant, a user group, or SMS. The table is the effective tier, not the table the row was stored in. A group is managed at Admin → User Groups (super admin).
+
 `users.is_admin` is a **legacy column** kept for compatibility; do not read it for authorization. Admin → Users keeps it equal to `is_super_admin`; `/register` no longer writes it.
 
 ## Decorators (`app/utils.py`)
@@ -41,7 +43,7 @@ Tiers, evaluated in this order:
 |---|---|---|
 | `@login_required` (Flask-Login) | authenticated | every non-auth route, applied first |
 | `@admin_required` | admin level on any subject (`authz.any_level(user, 'admin')`; super admin passes) | admin panel pages that are not subject-specific |
-| `@super_admin_required` | `authz.is_super_admin` | Users (+ `/admin/users/<id>/{revoke-sessions,active,local-only,delete,delete-preview}`), Subjects, System Settings, LLM Endpoints, AI Prompts, `/admin/files`, Health, `/register`, SMS sign-in admin `/admin/sms/*` |
+| `@super_admin_required` | `authz.is_super_admin` | Users (+ `/admin/users/<id>/{revoke-sessions,active,local-only,delete,delete-preview,groups}`), User Groups (`/admin/user-groups/`), Subjects, System Settings, LLM Endpoints, AI Prompts, `/admin/files`, Health, `/register`, SMS sign-in admin `/admin/sms/*` |
 | `@subject_access_required` | viewer level on the request's subject | read routes on a specific subject |
 | `@subject_admin_required` | admin level on the request's subject | mutating routes on a specific subject |
 | `@subject_level_required(level, source=None)` | that level on the request's subject | anything in between (e.g. `'user'`) |
@@ -56,7 +58,7 @@ The subject decorators resolve `subject_id` with `request_subject_id`: URL kwarg
 
 ## `User` helpers (`app/models.py`)
 
-All of these delegate to `app/authz.py`, so they reflect the effective level (not just the local grant):
+All of these delegate to `app/authz.py`, so they reflect the effective level (personal grant, groups and SMS):
 
 | Method | Meaning |
 |---|---|

@@ -216,7 +216,7 @@ Verification is `verify_snapshot` (section 6 steps 1–7, `purpose=directory_sna
 ## Business rules / invariants
 
 - **Effective level** on subject S = max(local grant, SMS `default_level`, levels of SMS subjects mapped to S), non-primary issuers capped, rows from issuers not active on the trust list ignored, SMS rows ignored unless `SMS_SSO_ENABLED` and `SMS_SCHEMA_READY`. Per request, never stored in the session ([ADR-019](../decisions/ADR-019-effective-level-authz.md)).
-- **Replace, never merge**: each handoff replaces that user's levels for that issuer; local grants are never touched.
+- **Replace, never merge**: each handoff replaces that user's levels for that issuer; personal grants and user-group grants are never touched.
 - **Redirects** are fixed paths only; the token never chooses one.
 - **The token is never logged or stored**: not in audit rows (`scrub`), not in exceptions (`VerifyError` carries the reason only), not in the session.
 - Super admin stays local; SMS `admin` is per-subject admin.

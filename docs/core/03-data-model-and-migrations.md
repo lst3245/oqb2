@@ -8,6 +8,10 @@
 erDiagram
   users ||--o{ user_subject_permissions : has
   subjects ||--o{ user_subject_permissions : scopes
+  users ||--o{ user_group_members : joins
+  user_groups ||--o{ user_group_members : has
+  user_groups ||--o{ user_group_permissions : grants
+  subjects ||--o{ user_group_permissions : scopes
   subjects ||--o{ topics : owns
   topics ||--o{ subtopics : owns
   subjects ||--o{ chapters : owns
@@ -39,7 +43,10 @@ erDiagram
 | Model | Table | Purpose | Constraints and notes |
 |---|---|---|---|
 | `User` | `users` | Login + `is_super_admin` + account state | `is_admin` is legacy, ignore it. `file_browser_location` TEXT NULL is JSON `{"user": {"root", "path"}, "admin": {"root", "path"}}` (last file-browser folder per scope). Account state (patched by `app/sso_schema.py`): `active` TINYINT(1) NOT NULL DEFAULT 1 (0 = cannot sign in, no level anywhere), `disabled_reason` VARCHAR(32), `disabled_at`, `display_name` / `name_zh` VARCHAR(200), `email` VARCHAR(254), `staff_code` VARCHAR(32), `session_version` INT NOT NULL DEFAULT 0 (part of the session id; bump = sign out everywhere), `local_only` TINYINT(1) NOT NULL DEFAULT 0 (never linked to SMS), `last_login_at`, `last_login_method` VARCHAR(16) (`password` / later `sms`). A `password_hash` starting with `!` is unusable. Helpers: [02-auth-and-permissions.md](02-auth-and-permissions.md), [../modules/sms-sso.md](../modules/sms-sso.md) |
-| `UserSubjectPermission` | `user_subject_permissions` | `role` ∈ `viewer` / `user` / `admin` per subject | unique `(user_id, subject_id)` |
+| `UserSubjectPermission` | `user_subject_permissions` | `role` ∈ `viewer` / `user` / `admin` per subject | unique `(user_id, subject_id)`. Personal grant only; groups and SMS are separate ([../modules/user-groups.md](../modules/user-groups.md)) |
+| `UserGroup` | `user_groups` | Named set of per-subject roles | `name` VARCHAR(80) unique, `description` VARCHAR(200) NULL. A person may be in several. Effective level is the highest role, and a group never lowers a personal grant or SMS ([ADR-020](../decisions/ADR-020-user-groups.md)) |
+| `UserGroupPermission` | `user_group_permissions` | `role` ∈ `viewer` / `user` / `admin` for one group and subject | unique `(group_id, subject_id)`; FK `user_groups` CASCADE; FK `subjects` has no cascade (subject delete removes the rows) |
+| `UserGroupMember` | `user_group_members` | Membership | PK `(user_id, group_id)`; FK `user_groups` CASCADE; FK `users` has no cascade (user erase removes the rows, the group stays) |
 | `Subject` | `subjects` | `id` is a **string PK** (`MATC`), `name` (English), `name_zh` VARCHAR(100) NULL (Chinese, [../modules/i18n.md](../modules/i18n.md)); `split_parts_default` bool (default false); `topic_number_prefix` bool (default true); `subtopic_number_prefix` bool (default false); `marks_spacing` TEXT NULL (JSON marks → spacing rules for Generate "By marks", [../modules/marks.md](../modules/marks.md)) | `id` is embedded in QIDs and the `SOURCE_PATH/<id>/` layout → immutable. Topics/chapters cascade on delete; delete is blocked while questions reference it (see [../modules/admin-panel.md](../modules/admin-panel.md)). `split_parts_default` is on the Subjects form and seeds the PDF-import split checkbox. The number-prefix flags only change how topic / subtopic names are displayed in the UI (`01 Name`, `1.1 Name`, `app/tax_numbers.py`); edited on the Topics page. |
 | `Topic` / `Subtopic` | `topics` / `subtopics` | Curriculum tagging; `name` (English, sort / match key) + `name_zh` VARCHAR(200) NULL (Chinese); `sort_order`; `hidden` on both (bool, default false); `description` (≤ 300, auto-tag hint) | Subtopics cascade from topic. Hidden nodes (and children of a hidden topic) are left out of the dashboard filter by default, generation numbering and the auto-tag taxonomy; tag editors still list them. Show names via `i18n.display_name`, match via `i18n.build_name_index` ([../modules/i18n.md](../modules/i18n.md)) |
 | `Chapter` / `Subchapter` | `chapters` / `subchapters` | Textbook organisation; `name` + `name_zh` VARCHAR(200) NULL; `sort_order`; `hidden` on both; `description` (≤ 300, auto-tag hint) | `questions.chapter_id/subchapter_id` are `ON DELETE SET NULL`. Same hidden semantics as topics (no numbering for chapters) |

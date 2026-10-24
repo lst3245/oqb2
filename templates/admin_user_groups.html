@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t('User Groups - Question Bank') }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    #groupPanel { width: min(48rem, 100vw); }
+    .group-summary { max-width: 28rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4 px-4">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <h2 class="mb-0"><i class="bi bi-people-fill"></i> {{ t('User Groups') }}</h2>
+        <a href="{{ url_for('admin.users') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> {{ t('Manage Users') }}
+        </a>
+    </div>
+    <p class="text-muted mt-1">{{ t('Define a group, set a role on each subject, then add people. Members inherit the highest role from every group they belong to.') }}</p>
+    <hr>
+
+    <form method="post" action="{{ url_for('groups_admin.index') }}" class="row g-2 align-items-end mb-4">
+        {{ csrf_field() }}
+        <div class="col-md-3">
+            <label class="form-label small mb-0" for="group-name">{{ t('Group name') }}</label>
+            <input type="text" class="form-control form-control-sm" id="group-name" name="name" maxlength="80" required>
+        </div>
+        <div class="col-md-5">
+            <label class="form-label small mb-0" for="group-description">{{ t('Description') }}</label>
+            <input type="text" class="form-control form-control-sm" id="group-description" name="description" maxlength="200">
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-success btn-sm">
+                <i class="bi bi-plus-lg"></i> {{ t('Add group') }}
+            </button>
+        </div>
+    </form>
+
+    <table class="table table-sm table-hover align-middle mb-2">
+        <thead class="table-light">
+            <tr>
+                <th>{{ t('Group name') }}</th>
+                <th>{{ t('Description') }}</th>
+                <th>{{ t('Members') }}</th>
+                <th>{{ t('Access') }}</th>
+                <th>{{ t('Actions') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr id="group-{{ row.group.id }}">
+                <td>{{ row.group.name }}</td>
+                <td>{% if row.group.description %}{{ row.group.description }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td id="group-members-{{ row.group.id }}">{{ t('{n} members', n=row.member_count) }}</td>
+                <td class="group-summary" id="group-summary-{{ row.group.id }}">{{ row.summary }}</td>
+                <td class="text-nowrap">
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                            onclick="openGroup({{ row.group.id }}, {{ row.group.name|tojson }})">{{ t('Edit') }}</button>
+                    <form method="post" action="{{ url_for('groups_admin.delete_group', group_id=row.group.id) }}" class="d-inline"
+                          onsubmit="return confirm({{ t('Delete this group? Members keep their personal permissions and SMS levels.')|tojson }});">
+                        {{ csrf_field() }}
+                        <button type="submit" class="btn btn-sm btn-outline-danger">{{ t('Delete') }}</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" class="text-muted">{{ t('No groups yet. Add one to grant the same subject roles to several people.') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="offcanvas offcanvas-end" tabindex="-1" id="groupPanel" aria-labelledby="groupPanelTitle">
+    <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="groupPanelTitle">{{ t('User Groups') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ t('Close') }}"></button>
+    </div>
+    <div class="offcanvas-body" id="groupPanelBody"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const GROUP_PANEL_URL = {{ url_for('groups_admin.panel', group_id=0)|tojson }};
+const GROUP_PERM_URL = {{ url_for('groups_admin.update_permissions', group_id=0)|tojson }};
+const GROUP_MEMBERS_URL = {{ url_for('groups_admin.update_members', group_id=0)|tojson }};
+
+function groupUrl(template, groupId) {
+    return template.replace('/0/', '/' + groupId + '/');
+}
+
+function openGroup(groupId, name) {
+    document.getElementById('groupPanelTitle').textContent = name;
+    const body = document.getElementById('groupPanelBody');
+    body.innerHTML = '<p class="text-muted">' + OQB.t('Loading...') + '</p>';
+    bootstrap.Offcanvas.getOrCreateInstance(document.getElementById('groupPanel')).show();
+    fetch(groupUrl(GROUP_PANEL_URL, groupId))
+        .then(r => {
+            if (!r.ok) throw new Error('load');
+            return r.text();
+        })
+        .then(html => { body.innerHTML = html; })
+        .catch(() => {
+            body.innerHTML = '<p class="text-danger">' + OQB.t('Could not load this group.') + '</p>';
+        });
+}
+
+function updateGroupPermission(groupId, subjectId, role) {
+    const permissions = {};
+    permissions[subjectId] = role || null;
+    fetch(groupUrl(GROUP_PERM_URL, groupId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: permissions })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert(OQB.t('Error updating permission: {error}', {error: data.error}));
+            return;
+        }
+        const cell = document.getElementById('group-summary-' + groupId);
+        if (cell && data.summary) cell.textContent = data.summary;
+    })
+    .catch(() => alert(OQB.t('Error updating permission')));
+}
+
+function saveGroupMembers(event, groupId) {
+    event.preventDefault();
+    const ids = [];
+    document.querySelectorAll('#groupPanelBody .group-member-check:checked').forEach(function(el) {
+        ids.push(Number(el.value));
+    });
+    fetch(groupUrl(GROUP_MEMBERS_URL, groupId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_ids: ids })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        const cell = document.getElementById('group-members-' + groupId);
+        if (cell) cell.textContent = OQB.t('{n} members', {n: data.member_count});
+    })
+    .catch(() => alert(OQB.t('Could not save members.')));
+    return false;
+}
+
+function filterGroupMembers(q) {
+    q = (q || '').trim().toLowerCase();
+    document.querySelectorAll('#groupPanelBody .member-row').forEach(function(row) {
+        row.hidden = !!(q && (row.dataset.name || '').indexOf(q) === -1);
+    });
+}
+</script>
+{% endblock %}

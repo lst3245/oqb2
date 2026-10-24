@@ -1,0 +1,24 @@
+---
+description: User groups inherit per-subject roles. Effective level is the highest of the personal grant, every group and SMS. Groups never lower access and never grant super admin.
+globs: app/authz.py,app/user_groups.py,app/groups_admin.py,app/users_directory.py,app/models.py,templates/admin_user_groups.html,templates/partials/admin_user_group_panel.html,templates/partials/admin_user_permissions.html
+alwaysApply: false
+---
+
+# User groups (bootloader — spec in `docs/modules/user-groups.md`, ADR-020)
+
+Groups are another input to `authz.compute_levels`, not a copy of SMS or of `user_subject_permissions`.
+
+## Invariants
+
+- Effective level on a subject = highest of personal grant, every group the user belongs to (`authz.highest_grant`), and SMS (existing issuer cap). A group never lowers another source.
+- A group role is only `viewer` / `user` / `admin`. It cannot grant super admin (`users.is_super_admin`).
+- Never write SMS rows into `user_group_permissions` or `user_subject_permissions`. Never write a group grant back onto those tables.
+- Both `authz._load_levels` and `users_directory._ranks` pass `groups`. The SMS-only column passes an empty map. A new level source goes into `compute_levels`, then both of those loaders.
+- Do not bump `session_version` on a group edit. Levels are not in the session.
+- Subject delete removes `user_group_permissions` for that subject (no FK cascade). User erase removes that user's `user_group_members` row (`user_erase.LINKS`); the group stays.
+- Routes: `@login_required` + `@super_admin_required`. Service raises `GroupError`; the route translates `code` and commits.
+
+## Gotchas
+
+- `highest_grant` drops unknown roles. Do not store them.
+- A disabled account still has no effective level. Membership stays.

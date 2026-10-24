@@ -4,9 +4,10 @@ The page lists one row per user. Per-subject permission controls are not
 rendered here; they load on demand from the permissions panel.
 
 Effective access uses ``authz.compute_levels`` (the same math as
-``authz.effective_levels``): local grants, SMS default and mapped subject
-levels, issuer caps. An inactive account has no effective access. An active
-super admin is admin on every subject.
+``authz.effective_levels``): personal grants, the highest role from every
+user group, SMS default and mapped subject levels, issuer caps. An inactive
+account has no effective access. An active super admin is admin on every
+subject.
 
 Filters (query args):
 
@@ -26,6 +27,8 @@ Filters (query args):
   ``admin`` (includes active super admins). Viewers do not match. Disabled
   accounts do not match, even if a local grant is still stored. Applied in
   Python over the SQL-filtered set after one bulk load (not per user).
+* ``group`` — a ``user_groups.id``. Keeps members of that group. ``0``,
+  blank and non-integers mean no group filter. Combines with the others.
 * ``page`` — 25 rows. Out of range clamps to the last page; below 1 and
   non-integers become page 1.
 
@@ -44,7 +47,7 @@ from app import authz, db
 from app.i18n import t as _t
 from app.models import (
     UNUSABLE_PASSWORD_PREFIX, ExternalIdentity, SmsSubjectMap, Subject, User,
-    UserSmsLevel, UserSubjectPermission,
+    UserGroup, UserGroupMember, UserGroupPermission, UserSmsLevel, UserSubjectPermission,
 )
 from app.utils import utc_iso
 
@@ -70,12 +73,19 @@ def parse_filters(args) -> dict:
         page = 1
     if page < 1:
         page = 1
+    try:
+        group = int(args.get('group') or 0)
+    except (TypeError, ValueError):
+        group = 0
+    if group < 1:
+        group = 0
     return {
         'q': q,
         'status': status,
         'source': source,
         'super_only': str(args.get('super') or '').lower() in ('1', 'true', 'on', 'yes'),
         'subject': (args.get('subject') or '').strip(),
+        'group': group,
         'page': page,
     }
 
@@ -165,6 +175,7 @@ def listing(args) -> dict:
         'filters': _view_filters(filters),
         'users_href': _href(filters),
         'page_numbers': _numbers(page, pages),
+        'groups': _all_groups(),
     }
 
 
@@ -182,6 +193,11 @@ def permission_panel(user) -> dict:
         'effective': effective_for(user, bundle),
         'sms_only': sms_only_for(user, bundle),
         'sms_levels': bundle.sms_display.get(user.id, []),
+        'group_only': _ranks_to_levels(authz.compute_levels(
+            local={}, groups=bundle.group_grants.get(user.id, {}))),
+        'group_sources': bundle.group_sources.get(user.id, {}),
+        'member_of': bundle.member_of.get(user.id, []),
+        'all_groups': _all_groups(),
     }
 
 
@@ -191,7 +207,9 @@ def effective_for(user, bundle) -> dict:
         return {}
     if user.is_super_admin:
         return {sid: 'admin' for sid in bundle.subject_ids}
-    return _ranks_to_levels(_ranks(user, bundle, local=bundle.perms.get(user.id, {})))
+    return _ranks_to_levels(_ranks(
+        user, bundle, local=bundle.perms.get(user.id, {}),
+        groups=bundle.group_grants.get(user.id, {})))
 
 
 def sms_only_for(user, bundle) -> dict:
@@ -254,6 +272,11 @@ def _filtered_users(filters):
                 from app.sms_sso_service import METHOD_JIT  # not a level
                 jit = linked.where(ExternalIdentity.link_method == METHOD_JIT)
                 query = query.filter(jit.exists())
+    if filters['group']:
+        member = select(UserGroupMember.user_id).where(
+            UserGroupMember.group_id == filters['group'],
+            UserGroupMember.user_id == User.id)
+        query = query.filter(member.exists())
     return query.order_by(User.username, User.id)
 
 
@@ -266,6 +289,9 @@ def _bundle(user_ids):
     sms_display = defaultdict(list)
     mapping = {}
     caps = {}
+    group_grants = {}
+    group_sources = defaultdict(dict)
+    member_of = defaultdict(list)
     if user_ids:
         for uid, sid, role in (db.session.query(
                 UserSubjectPermission.user_id, UserSubjectPermission.subject_id,
@@ -297,14 +323,65 @@ def _bundle(user_ids):
                 except Exception:
                     log.exception('users directory: SMS levels unavailable; local grants only')
                     caps, mapping = {}, {}
+        group_grants, group_sources, member_of = _group_bundle(user_ids)
     return SimpleNamespace(
         subjects=subjects, subject_ids=subject_ids, perms=perms,
         identities=identities, sms_rows=sms_rows, sms_display=sms_display,
-        mapping=mapping, caps=caps,
+        mapping=mapping, caps=caps, group_grants=group_grants,
+        group_sources=group_sources, member_of=member_of,
     )
 
 
-def _ranks(user, bundle, *, local):
+def _all_groups():
+    """Every group, for the filter and the membership checklist."""
+    try:
+        return UserGroup.query.order_by(UserGroup.name, UserGroup.id).all()
+    except Exception:
+        log.exception('users directory: user groups unavailable')
+        db.session.rollback()
+        return []
+
+
+def _group_bundle(user_ids):
+    """``(grants, sources, member_of)`` for these users.
+
+    ``grants`` is ``{user_id: {subject_id: highest role}}``. ``sources`` is
+    ``{user_id: {subject_id: [(group name, role), ...]}}``. ``member_of``
+    is ``{user_id: [group id, ...]}``.
+    """
+    grants = {}
+    sources = defaultdict(dict)
+    member_of = defaultdict(list)
+    try:
+        rows = (db.session.query(
+                UserGroupMember.user_id, UserGroup.id, UserGroup.name,
+                UserGroupPermission.subject_id, UserGroupPermission.role)
+                .join(UserGroup, UserGroup.id == UserGroupMember.group_id)
+                .outerjoin(UserGroupPermission,
+                           UserGroupPermission.group_id == UserGroup.id)
+                .filter(UserGroupMember.user_id.in_(user_ids))
+                .order_by(UserGroup.name, UserGroup.id)
+                .all())
+    except Exception:
+        log.exception('users directory: group grants unavailable')
+        db.session.rollback()
+        return grants, sources, member_of
+    per_group = {}
+    for uid, gid, name, sid, role in rows:
+        if gid not in member_of[uid]:
+            member_of[uid].append(gid)
+        if not sid or not role:
+            continue
+        per_group.setdefault((uid, gid), {})[sid] = role
+        sources[uid].setdefault(sid, []).append((name, role))
+    for uid in user_ids:
+        maps = [per_group[(uid, gid)] for gid in member_of[uid] if (uid, gid) in per_group]
+        grants[uid] = authz.highest_grant(*maps)
+    return grants, sources, member_of
+
+
+def _ranks(user, bundle, *, local, groups=None):
+    """``groups`` omitted means no group contribution (the SMS-only column)."""
     extra = {}
     if authz.sms_levels_count():
         rows = bundle.sms_rows.get(user.id, [])
@@ -319,7 +396,7 @@ def _ranks(user, bundle, *, local):
                 'all_subjects': bundle.subject_ids if defaults else (),
                 'issuer_caps': bundle.caps,
             }
-    return authz.compute_levels(local=local, **extra)
+    return authz.compute_levels(local=local, groups=groups or {}, **extra)
 
 
 def _ranks_to_levels(ranks) -> dict:
@@ -342,6 +419,7 @@ def _view_filters(filters) -> dict:
         'source': filters['source'],
         'super': filters['super_only'],
         'subject': filters['subject'],
+        'group': filters['group'],
     }
 
 
@@ -353,6 +431,7 @@ def _href(filters):
             'source': filters['source'],
             'super': filters['super_only'],
             'subject': filters['subject'],
+            'group': filters['group'],
             'page': filters['page'],
         }
         cur.update(over)
@@ -367,6 +446,12 @@ def _href(filters):
             params['super'] = '1'
         if cur.get('subject'):
             params['subject'] = cur['subject']
+        try:
+            group = int(cur.get('group') or 0)
+        except (TypeError, ValueError):
+            group = 0
+        if group > 0:
+            params['group'] = group
         try:
             page = int(cur.get('page') or 1)
         except (TypeError, ValueError):
