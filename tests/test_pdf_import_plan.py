@@ -19,6 +19,7 @@ from app.pdf_import import (
     plan_item_label,
     plan_leaf_marks,
     plan_marks_by_label,
+    provisional_paper_name,
     sanitize_plan,
 )
 
@@ -486,6 +487,53 @@ class PlanMarksTests(unittest.TestCase):
                     {'page': 0, 'label': '7a', 'box': [0, 0.2, 1, 1], 'marks': 4}]
         carry_total_marks(items, '7', children)
         self.assertEqual([c.get('marks') for c in children], [12, 4])
+
+
+class ProvisionalPaperNameTests(unittest.TestCase):
+    """Filename → SUBJECT_SOURCE_YEAR_PAPER. The wizard JS mirrors this."""
+
+    def test_full_code_in_the_filename(self):
+        self.assertEqual(
+            provisional_paper_name('PHYS_DSE_2024_P1A.pdf'), 'PHYS_DSE_2024_P1A')
+        self.assertEqual(
+            provisional_paper_name('phys-dse-2024-p1a.pdf'), 'PHYS_DSE_2024_P1A')
+
+    def test_year_paper_uses_the_only_subject_and_dse(self):
+        self.assertEqual(
+            provisional_paper_name('2024_P1A.pdf', subjects=['PHYS']),
+            'PHYS_DSE_2024_P1A')
+
+    def test_year_paper_needs_a_subject_when_several_are_allowed(self):
+        self.assertIsNone(
+            provisional_paper_name('2024_P1A.pdf', subjects=['PHYS', 'CHEM']))
+
+    def test_subject_comes_from_the_server_path(self):
+        self.assertEqual(
+            provisional_paper_name(
+                '2024_P1A.pdf', subjects=['PHYS', 'CHEM'],
+                rel_path='PHYS/2024_P1A.pdf'),
+            'PHYS_DSE_2024_P1A')
+
+    def test_subject_year_paper_defaults_the_source(self):
+        self.assertEqual(
+            provisional_paper_name('PHYS_2024_P1A.pdf', subjects=['PHYS']),
+            'PHYS_DSE_2024_P1A')
+        self.assertEqual(
+            provisional_paper_name('PHYS_2008_P1.pdf', subjects=['PHYS']),
+            'PHYS_CE_2008_P1')
+
+    def test_explicit_source_is_kept(self):
+        self.assertEqual(
+            provisional_paper_name('PHYS_AL_2005_P2.pdf'), 'PHYS_AL_2005_P2')
+
+    def test_other_subject_is_not_rewritten(self):
+        self.assertIsNone(
+            provisional_paper_name('CHEM_DSE_2024_P1A.pdf', subjects=['PHYS']))
+        self.assertIsNone(
+            provisional_paper_name('CHEM_2024_P1A.pdf', subjects=['PHYS']))
+
+    def test_no_year_is_not_a_paper(self):
+        self.assertIsNone(provisional_paper_name('notes.pdf', subjects=['PHYS']))
 
 
 if __name__ == '__main__':

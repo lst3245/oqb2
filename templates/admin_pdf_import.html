@@ -558,6 +558,7 @@ const bboxCard = document.getElementById('bboxCard');
 const importCard = document.getElementById('importCard');
 const AI_ENABLED = {{ ai_enabled|tojson }};
 const HAS_ENDPOINTS = {{ (endpoints|length > 0)|tojson }};
+const SUBJECT_IDS = {{ subjects|map(attribute='id')|list|tojson }};
 
 // ----- Task (exam vs generic) -----
 function currentTask() {
@@ -1017,6 +1018,123 @@ const serverPdf = { que: null, sol: null };
 let guessing = false;
 let paperGuessPromise = null;
 let loadInFlight = false;
+// empty | provisional | guess | typed. A typed name is never replaced.
+let paperSource = 'empty';
+let paperTouchSuppress = 0;
+let stagedPaperSync = null;
+let splitPartsTouched = false;
+
+// Mirrors app.pdf_import.provisional_paper_name — keep the two in step.
+function provisionalPaperName(filename, relPath) {
+    const blob = ((relPath || '') + ' ' + (filename || '')).replace(/\\/g, '/');
+    const folded = blob.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toUpperCase();
+    if (!folded) return null;
+    const allowed = (SUBJECT_IDS || []).map(s => String(s || '').trim().toUpperCase()).filter(Boolean);
+    const reserved = { DSE: 1, CE: 1, AL: 1, PAPER: 1, PDF: 1 };
+    function acceptSubject(subj) {
+        subj = String(subj || '').toUpperCase();
+        if (!/^[A-Z0-9]{1,10}$/.test(subj) || reserved[subj]) return null;
+        if (!allowed.length) return subj;
+        return allowed.indexOf(subj) >= 0 ? subj : null;
+    }
+    function groups(re, text, group) {
+        const out = [];
+        const flags = re.flags.indexOf('g') >= 0 ? re : new RegExp(re.source, re.flags + 'g');
+        flags.lastIndex = 0;
+        let m;
+        while ((m = flags.exec(text))) out.push(m[group]);
+        return out;
+    }
+    function valid(code) {
+        return /^[A-Z0-9]+_(DSE|CE|AL)_\d{4}_P[A-Za-z0-9]+$/.test(code) ? code : null;
+    }
+    const full = folded.match(/(?:^|_)([A-Z0-9]{1,10})_(DSE|CE|AL)_(\d{4})_(P\d+[A-Z0-9]*)(?![A-Z0-9])/);
+    if (full) {
+        const subj = acceptSubject(full[1]);
+        if (!subj) return null;
+        return valid(subj + '_' + full[2] + '_' + full[3] + '_' + full[4]);
+    }
+    const years = groups(/((?:19|20)\d{2})(?!\d)/g, folded, 1);
+    if (!years.length) return null;
+    const year = years[years.length - 1];
+    let paperBits = groups(/(?:^|_)P(\d+[A-Z0-9]*)(?![A-Z0-9])/g, folded, 1);
+    if (!paperBits.length) paperBits = groups(/(?:^|_)PAPER_(\d+[A-Z]?)(?![A-Z0-9])/g, folded, 1);
+    if (!paperBits.length) return null;
+    const paper = 'P' + paperBits[paperBits.length - 1];
+    if (paper.length > 8) return null;
+    const sourceHit = folded.match(/(?:^|_)(DSE|CE|AL)(?![A-Z0-9])/);
+    const source = sourceHit ? sourceHit[1] : (parseInt(year, 10) >= 2012 ? 'DSE' : 'CE');
+    const explicitRe = new RegExp('(?:^|_)([A-Z][A-Z0-9]{1,9})_' + year + '_(?:(?:DSE|CE|AL)_)?' + paper + '(?![A-Z0-9])');
+    const explicit = folded.match(explicitRe);
+    let rejectedExplicit = false;
+    if (explicit && !reserved[explicit[1]]) {
+        const subj = acceptSubject(explicit[1]);
+        if (subj) return valid(subj + '_' + source + '_' + year + '_' + paper);
+        rejectedExplicit = true;
+    }
+    let subj = null;
+    if (allowed.length) {
+        const skip = {};
+        [year, paper, source, 'PDF', 'DSE', 'CE', 'AL', 'PAPER'].forEach(t => { skip[t] = 1; });
+        folded.split('_').some(token => {
+            if (skip[token] || allowed.indexOf(token) < 0) return false;
+            subj = token;
+            return true;
+        });
+        if (!subj && allowed.length === 1 && !rejectedExplicit) subj = allowed[0];
+    }
+    if (!subj) return null;
+    return valid(subj + '_' + source + '_' + year + '_' + paper);
+}
+
+function chosenPdfLabel() {
+    if (quePdf.files.length) return { name: quePdf.files[0].name, rel: '' };
+    if (serverPdf.que) return { name: serverPdf.que.name || '', rel: serverPdf.que.rel_path || '' };
+    if (solPdf.files.length) return { name: solPdf.files[0].name, rel: '' };
+    if (serverPdf.sol) return { name: serverPdf.sol.name || '', rel: serverPdf.sol.rel_path || '' };
+    return { name: '', rel: '' };
+}
+
+function setPaperValue(value, source) {
+    paperTouchSuppress++;
+    paperInput.value = value;
+    paperTouchSuppress--;
+    paperSource = source;
+}
+paperInput.addEventListener('input', () => {
+    if (paperTouchSuppress) return;
+    paperSource = paperInput.value.trim() ? 'typed' : 'empty';
+});
+
+function applySplitDefault(value) {
+    if (!splitPartsChk || splitPartsTouched || value == null) return;
+    splitPartsChk._fromServer = true;
+    splitPartsChk.checked = !!value;
+    splitPartsChk._fromServer = false;
+    refreshSplitDetectBtn();
+    refreshDetectLabel();
+}
+
+async function postSetPaper(paper) {
+    if (!staging || !staging.token || !paper || paperSource === 'typed') return;
+    const current = paperInput.value.trim().toUpperCase();
+    if (current && current !== String(paper).toUpperCase()) return;
+    try {
+        const r = await fetch(`${IMPORT_BASE}/set-paper`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: staging.token, paper: paper })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+        staging.subject = data.subject;
+        staging.source = data.source;
+        staging.year = data.year;
+        staging.paper = data.paper_code;
+        applySplitDefault(data.split_parts_default);
+    } catch (err) {
+        appendLog(OQB.t('Could not update the paper name: {error}', {error: err.message}), 'warning');
+    }
+}
 
 function openServerPicker(target) {
     OQBFileSelector.open({
@@ -1061,10 +1179,14 @@ function maybeGuessPaper(src) {
     paperGuessPromise = fetch(`${IMPORT_BASE}/guess-paper`, { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
-            if (data.paper && !paperInput.value.trim()) {
-                paperInput.value = data.paper;
+            if (data.paper && paperSource !== 'typed') {
+                setPaperValue(data.paper, 'guess');
                 appendLog(OQB.t('Auto-filled paper name from PDF: {paper}', {paper: data.paper}), 'success');
-            } else if (!data.paper) {
+                if (staging && staging.token) postSetPaper(data.paper);
+                else stagedPaperSync = data.paper;
+            } else if (!data.paper && paperSource === 'provisional') {
+                appendLog(OQB.t('Could not auto-detect the paper name. Keeping the name from the file.'), 'info');
+            } else if (!data.paper && paperSource !== 'typed') {
                 appendLog(OQB.t('Could not auto-detect the paper name — please type it.'), 'info');
             }
             return data.paper || '';
@@ -1279,6 +1401,7 @@ if (btnSplitDetect) btnSplitDetect.addEventListener('click', () => startSplitDet
 }));
 if (splitPartsChk) {
     splitPartsChk.addEventListener('change', () => {
+        if (!splitPartsChk._fromServer) splitPartsTouched = true;
         refreshSplitDetectBtn();
         refreshDetectLabel();
         if (shouldAutoSplit() && staging && !running && planRegionCount() > 0) {
@@ -1663,14 +1786,27 @@ async function loadPdf() {
     if (!hasQue && !hasSol) {
         alert(OQB.t('Choose or pick a question PDF and/or a solution PDF.')); return;
     }
-    // A guess already in flight is the same request — do not start another,
-    // and do not wait at all when a name is already typed.
-    if (!generic && !paperInput.value.trim() && paperGuessPromise) {
-        appendLog(OQB.t('Waiting for the paper-name guess…'), 'info');
-        try { await paperGuessPromise; } catch (_) { /* non-fatal */ }
+    // Never await /guess-paper. A name already in the field is used as-is.
+    // An empty field is filled from the file name (provisional) and staging
+    // starts immediately; the in-flight guess may replace it afterwards.
+    let paper = paperInput.value.trim();
+    let provisional = false;
+    if (!generic && !paper) {
+        const src = chosenPdfLabel();
+        const localName = provisionalPaperName(src.name, src.rel);
+        if (localName) {
+            setPaperValue(localName, 'provisional');
+            paper = localName;
+            provisional = true;
+            appendLog(OQB.t('Provisional paper name from the file name: {paper}. The guess can still update it.', {paper: localName}), 'info');
+        } else if (paperGuessPromise) {
+            appendLog(OQB.t('No paper name could be read from the file name. Type one, or click Load PDF again after the guess finishes.'), 'info');
+            return;
+        } else {
+            alert(OQB.t('Enter a paper name, e.g. MATC_DSE_2012_P1'));
+            return;
+        }
     }
-    const paper = paperInput.value.trim();
-    if (!generic && !paper) { alert(OQB.t('Enter a paper name, e.g. MATC_DSE_2012_P1')); return; }
 
     if (staging) {
         if (!confirm(OQB.t('Loading again will discard the current session and any boxes you drew. Continue?'))) return;
@@ -1708,7 +1844,10 @@ async function loadPdf() {
     fd.append('f_bw_threshold', document.getElementById('ppBwThreshold').value);
     const pageRange = (document.getElementById('pageRangeInput').value || '').trim();
     if (pageRange) fd.append('page_range', pageRange);
-    if (!generic) fd.append('paper', paper);
+    if (!generic) {
+        fd.append('paper', paper);
+        if (provisional) fd.append('paper_provisional', '1');
+    }
     if (quePdf.files.length) fd.append('que_pdf', quePdf.files[0]);
     else if (serverPdf.que) {
         fd.append('que_server_path', serverPdf.que.rel_path);
@@ -1737,8 +1876,14 @@ async function loadPdf() {
     staging = data;
     staging.method = methodSelect.value;
     staging.custom_prompt = false;
-    if (splitPartsChk && data.split_parts_default != null) {
-        splitPartsChk.checked = !!data.split_parts_default;
+    splitPartsTouched = false;
+    applySplitDefault(data.split_parts_default);
+    if (stagedPaperSync && paperSource !== 'typed') {
+        const pending = stagedPaperSync;
+        stagedPaperSync = null;
+        postSetPaper(pending);
+    } else {
+        stagedPaperSync = null;
     }
     // Generic regions (tables, charts) have no shared width; start them free.
     if (isGeneric() && cropWidthSel.value !== 'model') cropWidthSel.value = 'model';

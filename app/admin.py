@@ -5763,6 +5763,54 @@ def pdf_import_guess_paper():
     return jsonify({'paper': paper, 'filename': filename})
 
 
+@admin_bp.route('/pdf-import/set-paper', methods=['POST'])
+@login_required
+@admin_required
+def pdf_import_set_paper():
+    """Replace the staged paper code after Load PDF.
+
+    The wizard stages with a filename provisional name and does not wait for
+    ``/guess-paper``. When that guess (or a later edit that is still not a
+    typed override — the client decides) arrives, this updates ``meta`` so
+    commit imports under the final code. The subject may change; the caller
+    must admin the new subject.
+    """
+    from app import pdf_import
+
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    meta, err = _pdf_load_token_meta(token)
+    if err:
+        return jsonify({'error': err}), 404
+    if meta.get('mode') == 'generic':
+        return jsonify({'error': _t('Generic extraction has no paper name.')}), 400
+    paper = (data.get('paper') or '').strip().upper()
+    parsed, parse_err = pdf_import.parse_paper_prefix(paper)
+    if parse_err:
+        return jsonify({'error': parse_err}), 400
+    if not Subject.query.get(parsed['subject']):
+        return jsonify({'error': _t('Subject {subject} does not exist.', subject=parsed['subject'])}), 400
+    if not authz.has_level(current_user, parsed['subject'], 'admin'):
+        return jsonify({'error': _t('You do not have admin access to subject {subject}.', subject=parsed['subject'])}), 403
+    meta.update(parsed)
+    meta['paper_name'] = paper
+    meta['paper_provisional'] = False
+    try:
+        pdf_import.save_meta(token, meta)
+    except (ValueError, OSError) as e:
+        return jsonify({'error': str(e)}), 400
+    subj = Subject.query.get(parsed['subject'])
+    return jsonify({
+        'success': True,
+        'paper': paper,
+        'subject': parsed['subject'],
+        'source': parsed['source'],
+        'year': parsed['year'],
+        'paper_code': parsed['paper'],
+        'split_parts_default': bool(subj and subj.split_parts_default),
+    })
+
+
 def _pdf_load_token_meta(token):
     """Load a staging token's meta.json and enforce that it belongs to the
     current user (super admin: any; tokens without ``owner_user_id`` predate
@@ -5872,6 +5920,10 @@ def pdf_import_stage():
         meta['version'] = que_version  # back-compat single value
         meta['custom_prompt'] = False
         meta['instruction'] = ''
+        meta['paper_provisional'] = (
+            (request.form.get('paper_provisional') or '').strip().lower()
+            in ('1', 'true', 'yes', 'on'))
+        meta['paper_name'] = (paper or '').strip().upper()
 
     que_file = request.files.get('que_pdf')
     sol_file = request.files.get('sol_pdf')
@@ -6470,6 +6522,7 @@ def pdf_import_commit():
                                   'Start a new import if you need a different subject/PDF.')
         meta.update(parsed)
         meta['paper_name'] = paper_override
+        meta['paper_provisional'] = False
 
     que_version = (request.args.get('que_version')
                    or meta.get('que_version') or meta.get('version') or '').strip().upper()

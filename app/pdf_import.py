@@ -90,6 +90,98 @@ def parse_paper_prefix(prefix: str):
     }, None
 
 
+def provisional_paper_name(filename: str, subjects=None, rel_path: str = ''):
+    """Best ``SUBJECT_SOURCE_YEAR_PAPER`` from a file name, with no model call.
+
+    ``subjects`` is an optional allow-list of subject ids. A full code already
+    in the name wins (``PHYS_DSE_2024_P1A.pdf``). ``SUBJECT_2024_P1A`` and
+    ``2024_P1A`` fill a missing source: DSE when the year is 2012 or later
+    (first HKDSE), otherwise CE. ``AL`` / ``CE`` / ``DSE`` written in the name
+    is kept. A bare ``2024_P1A.pdf`` takes its subject from a path segment in
+    ``rel_path`` that is an allowed subject, or from the allow-list when that
+    list has exactly one id. An explicit subject that is not allowed is not
+    rewritten. Returns ``None`` when a code cannot be formed.
+    """
+    blob = f"{rel_path or ''} {filename or ''}".replace('\\', '/')
+    folded = re.sub(r'[^A-Za-z0-9]+', '_', blob).strip('_').upper()
+    if not folded:
+        return None
+
+    allowed = None
+    if subjects is not None:
+        allowed = {(s or '').strip().upper() for s in subjects if (s or '').strip()}
+
+    def accept_subject(subj):
+        subj = (subj or '').upper()
+        if not re.fullmatch(r'[A-Z0-9]{1,10}', subj or ''):
+            return None
+        if subj in ('DSE', 'CE', 'AL', 'PAPER', 'PDF'):
+            return None
+        if allowed is None or not allowed:
+            return subj
+        return subj if subj in allowed else None
+
+    full = re.search(
+        r'(?<![A-Z0-9])([A-Z0-9]{1,10})_(DSE|CE|AL)_(\d{4})_(P\d+[A-Z0-9]*)(?![A-Z0-9])',
+        folded)
+    if full:
+        subj = accept_subject(full.group(1))
+        if not subj:
+            return None
+        code = f"{subj}_{full.group(2)}_{full.group(3)}_{full.group(4)}"
+        _meta, err = parse_paper_prefix(code)
+        return None if err else code
+
+    years = re.findall(r'(?<!\d)((?:19|20)\d{2})(?!\d)', folded)
+    if not years:
+        return None
+    year = years[-1]
+    papers = re.findall(r'(?:^|_)P(\d+[A-Z0-9]*)(?![A-Z0-9])', folded)
+    if not papers:
+        papers = re.findall(r'(?:^|_)PAPER_(\d+[A-Z]?)(?![A-Z0-9])', folded)
+    if not papers:
+        return None
+    paper = 'P' + papers[-1]
+    if len(paper) > 8:
+        return None
+
+    source_m = re.search(r'(?<![A-Z0-9])(DSE|CE|AL)(?![A-Z0-9])', folded)
+    if source_m:
+        source = source_m.group(1)
+    else:
+        source = 'DSE' if int(year) >= 2012 else 'CE'
+
+    reserved = {'DSE', 'CE', 'AL', 'PAPER', 'PDF'}
+    explicit = re.search(
+        rf'(?<![A-Z0-9])([A-Z][A-Z0-9]{{1,9}})_{year}_(?:(?:DSE|CE|AL)_)?{re.escape(paper)}(?![A-Z0-9])',
+        folded)
+    rejected_explicit = False
+    if explicit and explicit.group(1) not in reserved:
+        subj = accept_subject(explicit.group(1))
+        if subj:
+            code = f"{subj}_{source}_{year}_{paper}"
+            _meta, err = parse_paper_prefix(code)
+            return None if err else code
+        # CHEM_2024_P1A must not become the caller's only subject.
+        rejected_explicit = True
+
+    subj = None
+    if allowed:
+        skip = {year, paper, source, 'PDF', 'DSE', 'CE', 'AL', 'PAPER'}
+        for token in folded.split('_'):
+            if token in skip or token not in allowed:
+                continue
+            subj = token
+            break
+        if subj is None and len(allowed) == 1 and not rejected_explicit:
+            subj = next(iter(allowed))
+    if not subj:
+        return None
+    code = f"{subj}_{source}_{year}_{paper}"
+    _meta, err = parse_paper_prefix(code)
+    return None if err else code
+
+
 def guess_paper_name(config, pdf_path: str, filename: str, subjects,
                      image_max_dim: int):
     """Best-guess the SUBJECT_SOURCE_YEAR_PAPER paper code for a PDF using a

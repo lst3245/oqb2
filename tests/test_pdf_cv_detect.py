@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 
 from app.pdf_cv_detect import (
+    _assign_qnos,
     _window,
     detect_cv_page,
     find_number_column,
@@ -192,6 +193,79 @@ class AnchorAndBoxTests(unittest.TestCase):
             ocr_reader=_ocr_by_y([(0.35, 4), (0.60, 5), (1.0, 6)]))
         qnos = [b['qno'] for b in out['boxes'] if not b.get('continues_prev')]
         self.assertEqual(qnos, [4, 5, 6])
+
+    def _option_page(self):
+        """Two question numbers on their own lines, plus A–D option rows."""
+        gray = _page()
+        for qy, oy in ((180, 360), (640, 820)):
+            _digit(gray, qy, x=100, w=28, h=24)
+            _bar(gray, qy + 36, 200, 700, thick=8)
+            _bar(gray, qy + 64, 200, 640, thick=8)
+            for i in range(4):
+                y = oy + i * 28
+                _digit(gray, y, x=230, w=12, h=16)
+                _bar(gray, y, 270, 560, thick=8)
+        return gray
+
+    def test_option_rows_are_not_questions(self):
+        out = detect_cv_page(self._option_page(), frame=FRAME, use_ocr=False)
+        qnos = [b['qno'] for b in out['boxes'] if not b.get('continues_prev')]
+        self.assertGreaterEqual(len(qnos), 2)
+        self.assertLessEqual(len(qnos), 3)
+        self.assertLess(len(out['boxes']), 6)
+
+    def test_option_letter_stack_is_not_numbered_one_to_n(self):
+        gray = _page()
+        for i in range(8):
+            y = 200 + i * 32
+            _digit(gray, y, x=220, w=12, h=16)
+            _bar(gray, y, 260, 600, thick=8)
+        out = detect_cv_page(gray, frame=FRAME, use_ocr=False)
+        self.assertLessEqual(len(out['boxes']), 2)
+        self.assertNotEqual(
+            [b.get('qno') for b in out['boxes']],
+            list(range(1, 9)))
+
+    def test_strip_ocr_two_digit_qnos_beat_option_rows(self):
+        def strip_reader(_gray):
+            return [
+                {'qno': 16, 'y': 180 / H, 'y_bottom': 204 / H, 'x0': 100 / W, 'x1': 128 / W},
+                {'qno': 17, 'y': 640 / H, 'y_bottom': 664 / H, 'x0': 100 / W, 'x1': 128 / W},
+            ]
+        out = detect_cv_page(
+            self._option_page(), frame=FRAME, use_ocr=True, strip_reader=strip_reader)
+        qnos = [b['qno'] for b in out['boxes'] if not b.get('continues_prev')]
+        self.assertEqual(qnos, [16, 17])
+        self.assertLess(len(out['boxes']), 6)
+        self.assertNotIn('qno_assumed', out['reasons'])
+
+    def test_unreadable_blob_run_is_not_numbered_one_to_n(self):
+        anchors = [{'y': i / 20.0, 'qno': None} for i in range(1, 12)]
+        how = _assign_qnos(anchors, [None] * len(anchors))
+        self.assertEqual(how, 'refused')
+        self.assertTrue(all(a.get('drop') for a in anchors))
+
+    def test_misread_middle_follows_its_neighbours(self):
+        anchors = [{'y': y} for y in (0.1, 0.3, 0.5, 0.7)]
+        how = _assign_qnos(anchors, [18, 19, 90, 21])
+        self.assertEqual(how, 'ocr')
+        self.assertEqual([a['qno'] for a in anchors], [18, 19, 20, 21])
+
+    def test_missing_end_follows_its_neighbour(self):
+        anchors = [{'y': 0.1}, {'y': 0.5}]
+        how = _assign_qnos(anchors, [None, 23])
+        self.assertEqual(how, 'ocr')
+        self.assertEqual([a['qno'] for a in anchors], [22, 23])
+        how = _assign_qnos(anchors, [26, None])
+        self.assertEqual(how, 'ocr')
+        self.assertEqual([a['qno'] for a in anchors], [26, 27])
+
+    def test_partial_reading_is_not_renumbered_from_one(self):
+        anchors = [{'y': 0.1}, {'y': 0.3}, {'y': 0.5}]
+        how = _assign_qnos(anchors, [None, 23, None], ocr_attempted=True)
+        self.assertEqual(how, 'partial')
+        kept = [a for a in anchors if not a.get('drop')]
+        self.assertEqual([a['qno'] for a in kept], [23])
 
 
 class PostRuleTests(unittest.TestCase):

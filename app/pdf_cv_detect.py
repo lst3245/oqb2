@@ -7,9 +7,12 @@ Classical (non-LLM) question detection for PDF Batch Import.
    so crops stay aligned).
 2. Uses the printed page frame when one exists.
 3. Finds question-start anchors in the left number column (projection, then
-   a per-line gap search that skips a blank left gutter). Optional local
-   Tesseract reads those blobs; without it the numbers are guessed 1..N and
-   confidence stays low.
+   a per-line gap search that skips a blank left gutter and a number printed
+   on its own line). Option-letter stacks (A/B/C/D) are not that column.
+   Optional local Tesseract reads the number column as a strip; a clear
+   sequence such as ``16.`` / ``17.`` wins over blob spam. Without a reading,
+   a short run of real anchors is guessed 1..N and confidence stays low.
+   A long run of unreadable blobs is not numbered 1..N.
 4. Builds one box per anchor with :func:`app.pdf_layout.segment_page`, then
    snaps ink with :func:`app.pdf_layout.refine_box` without crossing the next
    anchor.
@@ -210,6 +213,60 @@ def _projection_number_column(col, width, x0, x1):
     return None
 
 
+# Option letters on one question sit about one text line apart. Printed
+# question numbers on the same page are further apart than this.
+_OPTION_ROW_GAP = 0.055
+
+
+def _drop_tight_groups(items, gap, *, y_of, end_of=None):
+    """Drop items that sit in a run of three or more with gaps of at most ``gap``.
+
+    ``items`` are top-to-bottom. ``y_of`` / ``end_of`` return the top and
+    bottom in the same unit as ``gap`` (pixels or page fractions). A stack of
+    option letters is tight; successive question numbers are not.
+    """
+    if end_of is None:
+        end_of = y_of
+    n = len(items)
+    drop = set()
+    i = 0
+    while i < n:
+        group = [i]
+        j = i
+        while j + 1 < n:
+            if y_of(items[j + 1]) - end_of(items[j]) <= gap:
+                group.append(j + 1)
+                j += 1
+            else:
+                break
+        if len(group) >= 3:
+            drop.update(group)
+            i = j + 1
+        else:
+            i += 1
+    return [it for k, it in enumerate(items) if k not in drop]
+
+
+def _column_is_option_stack(dark, nx0, nx1, y0, y1) -> bool:
+    """True when this strip is mostly tight option rows, not question numbers."""
+    h = dark.shape[0]
+    if nx1 - nx0 < 3 or y1 - y0 < 20:
+        return False
+    strip = dark[y0:y1, nx0:nx1]
+    row_ink = strip.sum(axis=1) >= 3
+    runs = _merge_runs(_bool_runs(row_ink), gap=3)
+    min_h = max(6, int(0.006 * h))
+    max_h = int(0.05 * h)
+    lines = [(y0 + a, y0 + b) for a, b in runs if min_h <= (b - a + 1) <= max_h]
+    if len(lines) < 3:
+        return False
+    kept = _drop_tight_groups(
+        lines, max(16, int(_OPTION_ROW_GAP * h)),
+        y_of=lambda ln: ln[0], end_of=lambda ln: ln[1])
+    dropped = len(lines) - len(kept)
+    return dropped >= 3 and len(kept) < 2
+
+
 def _row_digit_column(dark, x0, y0, x1, y1):
     """Digit column from per-line gaps, ignoring a blank gutter and headings.
 
@@ -226,7 +283,9 @@ def _row_digit_column(dark, x0, y0, x1, y1):
     min_gap = _number_gap_px(width)
     max_w = max(16, int(width * 0.06))
     search_w = max(24, int(width * 0.45))
-    min_run = max(6, int(0.006 * h))
+    # A printed digit is ~0.008 of the page and has holes, so the old 0.006
+    # cutoff split "14." into pieces too short to vote.
+    min_run = max(8, int(0.0035 * h))
     votes = []  # (y, abs_a, abs_b)
     ys = dark[y0:y1, x0:x0 + search_w].any(axis=1).nonzero()[0]
     for rel_y in ys.tolist():
@@ -235,19 +294,47 @@ def _row_digit_column(dark, x0, y0, x1, y1):
         runs = _merged_mask_runs(row, dot_gap)
         if not runs:
             continue
+        # "14." and "*12" are several narrow runs. The gap inside the token
+        # is smaller than the gap before the stem, so join them and measure
+        # the stem gap after the whole token.
         a, b = runs[0]
+        i = 0
+        while i + 1 < len(runs):
+            gap_in = runs[i + 1][0] - runs[i][1] - 1
+            next_w = runs[i + 1][1] - runs[i + 1][0] + 1
+            token_w = runs[i + 1][1] - a + 1
+            if gap_in < min_gap and next_w <= max_w and token_w <= max_w:
+                b = runs[i + 1][1]
+                i += 1
+                continue
+            break
         if b - a + 1 > max_w or b - a + 1 < 3:
             continue
-        if len(runs) > 1:
-            gap = runs[1][0] - b - 1
+        # A mark that starts outside the content window shows up as a 2–4px
+        # sliver on the first columns. It is not a question number.
+        if a <= 2 and (b - a + 1) <= 6:
+            continue
+        if i + 1 < len(runs):
+            gap = runs[i + 1][0] - b - 1
+            has_right = True
         else:
             rest = dark[y, x0 + b + 1:x1]
             nxt = rest.nonzero()[0]
             if nxt.size == 0:
-                continue
-            gap = int(nxt[0])
-        if gap < min_gap:
+                gap = 10 ** 9
+                has_right = False
+            else:
+                gap = int(nxt[0])
+                has_right = True
+        if has_right and gap < min_gap:
             continue
+        if not has_right:
+            # "16." on its own line: no stem beside the digits. Keep the row
+            # only when real body ink sits below it (a stray mark does not).
+            look = min(y1, y + max(24, int(0.22 * h)))
+            body = dark[y + 4:look, x0 + b + 1:x1]
+            if body.size == 0 or int(body.sum()) < 40:
+                continue
         votes.append((y, x0 + a, x0 + b + 1))
     if not votes:
         return None
@@ -268,12 +355,15 @@ def _row_digit_column(dark, x0, y0, x1, y1):
         if not placed:
             clusters.append([vote[1], [vote]])
     chosen = None
+    # A hole inside "8" or between "*" and the digits is a few pixels, not a
+    # new question. Option rows are a text line apart and stay separate.
+    hole = max(3, int(0.004 * h))
     for med, items in clusters:
         items.sort()
         tall = []
         cur = [items[0]]
         for vote in items[1:]:
-            if vote[0] <= cur[-1][0] + 2:
+            if vote[0] <= cur[-1][0] + hole:
                 cur.append(vote)
             else:
                 span = cur[-1][0] - cur[0][0] + 1
@@ -283,6 +373,13 @@ def _row_digit_column(dark, x0, y0, x1, y1):
         span = cur[-1][0] - cur[0][0] + 1
         if span >= min_run and len(cur) >= max(6, span // 2):
             tall.append(cur)
+        if not tall:
+            continue
+        # A/B/C/D sit a line apart. Question numbers do not. Drop the stack
+        # so the leftmost *question* column wins, not the option column.
+        tall = _drop_tight_groups(
+            tall, max(16, int(_OPTION_ROW_GAP * h)),
+            y_of=lambda run: run[0][0], end_of=lambda run: run[-1][0])
         if not tall:
             continue
         if chosen is None or med < chosen[0]:
@@ -327,11 +424,18 @@ def find_number_column(dark, x0, y0, x1, y1):
     col = sub.mean(axis=0).astype(np.float64)
     col[col > 0.35] = 0.0  # full-height rules are not a number column
     found = _projection_number_column(col, width, x0, x1)
-    if found:
-        return found[0], found[1], True
+    if found and _column_is_option_stack(dark, found[0], found[1], y0, y1):
+        found = None
     voted = _row_digit_column(dark, x0, y0, x1, y1)
     if voted and voted[1] - voted[0] >= 4:
-        return voted[0], voted[1], True
+        # Question numbers sit left of the option letters. A denser option
+        # column must not hide a sparser number column further left (a "16."
+        # on its own line is too thin for the vertical projection).
+        if found is None or voted[0] + 4 < found[0]:
+            return voted[0], voted[1], True
+        return found[0], found[1], True
+    if found:
+        return found[0], found[1], True
     start = _first_content_column(col)
     fallback = max(12, int(width * 0.08))
     return x0 + start, min(x1, x0 + start + fallback), False
@@ -466,6 +570,35 @@ def suppress_indented_anchors(anchors):
     return kept
 
 
+def suppress_option_row_anchors(anchors):
+    """Drop a tight vertical stack of same-x blobs (option letters A–D).
+
+    Question numbers on the same page are much further apart than one text
+    line.     A run of three or more anchors within ``_OPTION_ROW_GAP`` of the page
+    height, sharing an x, is an option column that leaked into the anchor list.
+    """
+    ordered = sorted(anchors or [], key=lambda a: float(a['y']))
+    clusters = []
+    for anchor in ordered:
+        placed = False
+        x = float(anchor.get('x0', 0))
+        for cluster in clusters:
+            if abs(x - float(cluster[0].get('x0', 0))) <= 0.025:
+                cluster.append(anchor)
+                placed = True
+                break
+        if not placed:
+            clusters.append([anchor])
+    kept = []
+    for cluster in clusters:
+        kept.extend(_drop_tight_groups(
+            cluster, _OPTION_ROW_GAP,
+            y_of=lambda a: float(a['y']),
+            end_of=lambda a: float(a.get('y_bottom', a['y']))))
+    kept.sort(key=lambda a: float(a['y']))
+    return kept
+
+
 def _clean_qno(value):
     try:
         q = int(value)
@@ -476,39 +609,111 @@ def _clean_qno(value):
     return None
 
 
-def _assign_qnos(anchors, readings):
-    """Write ``qno`` / ``ocr`` / ``assumed`` onto anchors (no continuation rows)."""
+def _repair_qno_readings(vals):
+    """Fill or correct a middle value when its neighbours differ by 2.
+
+    ``1, None, 3`` becomes ``1, 2, 3``. A misread such as ``19, 90, 21``
+    (an asterisk beside ``20``) becomes ``19, 20, 21``. A real gap
+    (``1, 2, 4``) is left alone because the neighbours do not differ by 2.
+    """
+    vals = list(vals)
+    changed = True
+    while changed:
+        changed = False
+        for i in range(1, len(vals) - 1):
+            prev, nxt = vals[i - 1], vals[i + 1]
+            if prev is None or nxt is None or nxt != prev + 2:
+                continue
+            if vals[i] != prev + 1:
+                vals[i] = prev + 1
+                changed = True
+    return vals
+
+
+def _infer_single_gap(vals):
+    """Fill one missing end when the other anchor's number is known.
+
+    ``[None, 23]`` becomes ``[22, 23]``. ``[26, None]`` becomes ``[26, 27]``.
+    A missing middle is left to :func:`_repair_qno_readings`. The index of the
+    filled value is returned.
+    """
+    missing = [i for i, v in enumerate(vals) if v is None]
+    if len(missing) != 1 or len(vals) < 2:
+        return set()
+    i = missing[0]
+    if 0 < i < len(vals) - 1:
+        return set()
+    if i == 0 and vals[1] is not None:
+        guess = vals[1] - 1
+    elif i == len(vals) - 1 and vals[i - 1] is not None:
+        guess = vals[i - 1] + 1
+    else:
+        return set()
+    if _clean_qno(guess) is None or guess in vals:
+        return set()
+    vals[i] = guess
+    return {i}
+
+
+def _assign_qnos(anchors, readings, *, ocr_attempted: bool = False):
+    """Write ``qno`` / ``ocr`` / ``assumed`` onto anchors (no continuation rows).
+
+    Returns ``ocr`` when every kept anchor has a reading, ``assumed`` when a
+    short run is numbered 1..N, or ``partial`` / ``refused`` when unreadable
+    blobs were dropped instead of inventing that ladder. A single missing end
+    beside a known number is filled (``22`` next to ``23``). When OCR read
+    some but not all of a short run, the unread anchors are dropped rather
+    than the page being renumbered 1..N. Dropped anchors have ``drop`` set.
+    """
     readings = [_clean_qno(v) for v in (readings or [])]
     if len(readings) != len(anchors):
         readings = [None] * len(anchors)
-    if anchors and all(q is not None for q in readings):
-        for a, q in zip(anchors, readings):
+    vals = _repair_qno_readings(readings)
+    _infer_single_gap(vals)
+    if anchors and all(q is not None for q in vals):
+        for i, (a, q) in enumerate(zip(anchors, vals)):
             a['qno'] = q
             a['ocr'] = True
             a['assumed'] = False
+            a.pop('drop', None)
         return 'ocr'
-    vals = list(readings)
-    if any(v is not None for v in vals):
-        changed = True
-        while changed:
-            changed = False
-            for i in range(1, len(vals) - 1):
-                if vals[i] is None and vals[i - 1] is not None and vals[i + 1] is not None:
-                    if vals[i + 1] == vals[i - 1] + 2:
-                        vals[i] = vals[i - 1] + 1
-                        changed = True
-        if vals and all(v is not None for v in vals):
-            for a, q in zip(anchors, vals):
-                a['qno'] = q
+    confirmed = [i for i, v in enumerate(vals) if v is not None]
+    n = len(anchors)
+    # Option-row junk is a long run of blobs OCR could not read. Numbering
+    # them 1..N is what painted a dozen false questions on later MC pages.
+    if n >= 8 and len(confirmed) * 2 < n:
+        for i, a in enumerate(anchors):
+            if vals[i] is None:
+                a['qno'] = None
+                a['ocr'] = False
+                a['assumed'] = False
+                a['drop'] = True
+            else:
+                a['qno'] = vals[i]
                 a['ocr'] = True
                 a['assumed'] = False
-            return 'ocr'
-    n = 0
+                a.pop('drop', None)
+        return 'partial' if confirmed else 'refused'
+    if ocr_attempted and confirmed:
+        for i, a in enumerate(anchors):
+            if vals[i] is None:
+                a['qno'] = None
+                a['ocr'] = False
+                a['assumed'] = False
+                a['drop'] = True
+            else:
+                a['qno'] = vals[i]
+                a['ocr'] = True
+                a['assumed'] = False
+                a.pop('drop', None)
+        return 'partial'
+    n_out = 0
     for a in anchors:
-        n += 1
-        a['qno'] = n
+        n_out += 1
+        a['qno'] = n_out
         a['ocr'] = False
         a['assumed'] = True
+        a.pop('drop', None)
     return 'assumed'
 
 
@@ -674,6 +879,8 @@ def score_boxes(boxes, *, threshold: float = CV_LOW_CONFIDENCE,
     if 'empty_ink' in reasons:
         page = min(page, 0.2)
     if 'qno_assumed' in reasons:
+        page = min(page, 0.5)
+    if 'qno_partial' in reasons:
         page = min(page, 0.5)
     if 'number_column_guessed' in reasons and 'qno_assumed' not in reasons:
         page = min(page, 0.62)
@@ -923,18 +1130,304 @@ def _apply_x(box, frame_box, frame_inset, nx0, page_w, shrink_sides, pad_frac, c
     return [max(0.0, (nx0 / page_w) - pad_frac), y1, min(1.0, content_right), y2]
 
 
+_QNO_TOKEN = re.compile(r'^\*?(\d{1,3})\.?$')
+
+
+def _best_increasing_qnos(hits, max_step: int = 4):
+    """Longest y-ordered run whose question numbers climb by at most ``max_step``."""
+    best = []
+    hits = list(hits or [])
+    for i in range(len(hits)):
+        seq = [hits[i]]
+        for hit in hits[i + 1:]:
+            gap = int(hit['qno']) - int(seq[-1]['qno'])
+            if 1 <= gap <= max_step:
+                seq.append(hit)
+        if len(seq) > len(best):
+            best = seq
+    return best
+
+
+def _clear_qno_sequence(hits):
+    """Keep a readable increasing run of question numbers. Footer years go.
+
+    A single hit is returned so it can label one anchor. Two or more are a
+    sequence only when each step is small (``16`` then ``17``, or ``1`` then
+    ``3``). A token that breaks the run (``19, 90, 21``) is left out.
+    """
+    parsed = []
+    for hit in hits or []:
+        if not isinstance(hit, dict):
+            continue
+        q = _clean_qno(hit.get('qno'))
+        if q is None:
+            continue
+        try:
+            y = float(hit.get('y'))
+        except (TypeError, ValueError):
+            continue
+        if y < 0.02 or y > 0.92:
+            continue
+        item = dict(hit)
+        item['qno'] = q
+        item['y'] = y
+        parsed.append(item)
+    parsed.sort(key=lambda h: (h['y'], -float(h.get('conf') or 0)))
+    deduped = []
+    for hit in parsed:
+        if deduped and abs(hit['y'] - deduped[-1]['y']) < 0.012:
+            if float(hit.get('conf') or 0) > float(deduped[-1].get('conf') or 0):
+                deduped[-1] = hit
+            continue
+        deduped.append(hit)
+    best = _best_increasing_qnos(deduped)
+    if len(best) >= 2:
+        return best
+    if len(deduped) == 1:
+        return deduped
+    return best
+
+
+def _match_hit_qno(anchor, hits, tol: float = 0.02):
+    best = None
+    y = float(anchor.get('y', 0))
+    for hit in hits or []:
+        d = abs(y - float(hit['y']))
+        if d <= tol and (best is None or d < best[0]):
+            best = (d, hit['qno'])
+    return None if best is None else best[1]
+
+
+def _y_close(y, items, tol: float = 0.025) -> bool:
+    y = float(y)
+    for item in items or []:
+        try:
+            other = float(item.get('y', 0))
+        except (TypeError, ValueError):
+            continue
+        if abs(y - other) <= tol:
+            return True
+    return False
+
+
+def _strip_should_replace(anchors, hits) -> bool:
+    """True when strip OCR's y positions should replace blob anchors.
+
+    A clean page already has one blob per printed number: label those, do not
+    throw them away. A page of option-row blobs does not sit on the OCR lines.
+    """
+    if len(hits) < 2:
+        return False
+    if not anchors:
+        return True
+    matched = sum(1 for hit in hits if _y_close(hit['y'], anchors))
+    # Blobs already sit on the OCR lines: keep them and just label.
+    if matched >= max(1, len(hits) - 1) and len(anchors) <= len(hits) + 2:
+        return False
+    # Option rows, or a single footer mark, do not sit on the printed numbers.
+    if matched * 2 < len(hits):
+        return True
+    if len(anchors) >= max(6, len(hits) * 3):
+        return True
+    return False
+
+
+def _anchors_from_hits(hits):
+    out = []
+    for hit in hits:
+        y = float(hit['y'])
+        try:
+            yb = float(hit.get('y_bottom', y + 0.012))
+        except (TypeError, ValueError):
+            yb = y + 0.012
+        x0 = float(hit.get('x0', 0.10))
+        x1 = float(hit.get('x1', x0 + 0.03))
+        out.append({
+            'y': y,
+            'y_bottom': max(yb, y + 0.008),
+            'x0': x0,
+            'x1': max(x1, x0 + 0.01),
+            'qno': int(hit['qno']),
+            'ocr': True,
+            'assumed': False,
+            'continues_prev': False,
+        })
+    return out
+
+
+def _column_from_hits(hits, page_w: int):
+    x0 = min(float(h.get('x0', 0.10)) for h in hits)
+    x1 = max(float(h.get('x1', x0 + 0.03)) for h in hits)
+    px0 = int(round(x0 * page_w))
+    px1 = max(px0 + 8, int(round(x1 * page_w)))
+    return px0, min(page_w, px1)
+
+
+def _ocr_image_tokens(crop, origin_x, origin_y, page_w, page_h, tesseract_cmd: str,
+                      psm: int = 6):
+    """Digit tokens in ``crop`` as page-fraction hits. Empty when Tesseract is absent."""
+    try:
+        from app.pdf_text import resolve_tesseract
+        cmd = resolve_tesseract(tesseract_cmd or '')
+        if not cmd:
+            return []
+        import pytesseract
+        from PIL import Image
+    except Exception:
+        return []
+    if crop.size == 0 or crop.shape[0] < 8 or crop.shape[1] < 8:
+        return []
+    scale = 3
+    im = Image.fromarray(crop).resize((crop.shape[1] * scale, crop.shape[0] * scale))
+    try:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+        data = pytesseract.image_to_data(
+            im,
+            config=f'--psm {int(psm)} -c tessedit_char_whitelist=0123456789*.',
+            output_type=pytesseract.Output.DICT)
+    except Exception as e:
+        logger.info('pdf-import cv strip OCR skipped: %s', e)
+        return []
+    hits = []
+    texts = data.get('text') or []
+    for i, raw in enumerate(texts):
+        text = (raw or '').strip()
+        m = _QNO_TOKEN.match(text)
+        if not m:
+            continue
+        try:
+            conf = float(data['conf'][i])
+        except (TypeError, ValueError, IndexError):
+            conf = -1
+        if conf < 15:
+            continue
+        q = _clean_qno(m.group(1))
+        if q is None:
+            continue
+        try:
+            top = float(data['top'][i]) / scale
+            height = max(4.0, float(data['height'][i]) / scale)
+            left = float(data['left'][i]) / scale
+            width = max(4.0, float(data['width'][i]) / scale)
+        except (TypeError, ValueError, IndexError):
+            continue
+        y = (origin_y + top) / page_h
+        hits.append({
+            'qno': q,
+            'y': y,
+            'y_bottom': min(1.0, (origin_y + top + height) / page_h),
+            'x0': (origin_x + left) / page_w,
+            'x1': (origin_x + left + width) / page_w,
+            'conf': conf,
+        })
+    return hits
+
+
+def _best_x_cluster(hits):
+    """Leftmost x-cluster that forms a question-number sequence, else the longest."""
+    ordered = sorted(hits or [], key=lambda h: (float(h.get('x0', 0)), float(h.get('y', 0))))
+    clusters = []
+    for hit in ordered:
+        placed = False
+        for cluster in clusters:
+            if abs(float(hit.get('x0', 0)) - float(cluster[0].get('x0', 0))) <= 0.02:
+                cluster.append(hit)
+                placed = True
+                break
+        if not placed:
+            clusters.append([hit])
+    best = []
+    for cluster in clusters:
+        seq = _clear_qno_sequence(cluster)
+        if len(seq) >= 2 and cluster is clusters[0]:
+            return seq
+        if len(seq) > len(best):
+            best = seq
+    return best
+
+
+def _tesseract_ready(tesseract_cmd: str = '') -> bool:
+    try:
+        from app.pdf_text import resolve_tesseract
+        return bool(resolve_tesseract(tesseract_cmd or ''))
+    except Exception:
+        return False
+
+
+def _read_column_sequence(crop, origin_x, origin_y, page_w, page_h, tesseract_cmd: str):
+    """Question-number sequence in ``crop``. A sparse second pass covers a lone ``15.``."""
+    seq = _clear_qno_sequence(
+        _ocr_image_tokens(crop, origin_x, origin_y, page_w, page_h, tesseract_cmd, psm=6))
+    if len(seq) >= 2:
+        return seq
+    sparse = _clear_qno_sequence(
+        _ocr_image_tokens(crop, origin_x, origin_y, page_w, page_h, tesseract_cmd, psm=11))
+    if len(sparse) > len(seq):
+        return sparse
+    return seq
+
+
+def _ocr_question_numbers(gray, x0, y0, x1, y1, nx0, nx1, tesseract_cmd: str = ''):
+    """Read ``16.`` / ``17.`` from the number column, then the left gutter.
+
+    The column crop is widened so a two-digit number is readable. When that
+    column is option letters it has no digits, and the left gutter's digit
+    cluster is used instead. The gutter stops before the stem. A sparse
+    second pass (psm 11) picks up a lone number such as ``15.`` that a
+    block read skips.
+    """
+    h, w = gray.shape[:2]
+    pad_x = max(4, int(0.004 * w))
+    cx0 = max(0, int(nx0) - pad_x)
+    cx1 = min(w, int(nx1) + pad_x)
+    # The ink bbox of "1." is ~60px. Tesseract reads "14." / "16." in a band
+    # about 0.055 of the page wide, and loses them in the skinny crop.
+    min_w = max(32, int(0.055 * w))
+    if cx1 - cx0 < min_w:
+        cx1 = min(w, cx0 + min_w)
+    cap = max(min_w, int(0.08 * w))
+    if cx1 - cx0 > cap:
+        cx1 = cx0 + cap
+    yy0 = max(0, int(y0))
+    yy1 = min(h, int(y1))
+    column_hits = _read_column_sequence(
+        gray[yy0:yy1, cx0:cx1], cx0, yy0, w, h, tesseract_cmd)
+    if len(column_hits) >= 2:
+        return column_hits
+    # A band that reaches the stem (nearly half the content window) reads
+    # body digits and returns a broken sequence. Stay in the left gutter.
+    band_w = max(min_w, int(0.16 * w))
+    bx0 = max(0, int(x0))
+    bx1 = min(w, bx0 + band_w)
+    wide = _ocr_image_tokens(gray[yy0:yy1, bx0:bx1], bx0, yy0, w, h, tesseract_cmd)
+    wide_seq = _best_x_cluster(wide)
+    if len(wide_seq) < 2:
+        sparse = _best_x_cluster(_ocr_image_tokens(
+            gray[yy0:yy1, bx0:bx1], bx0, yy0, w, h, tesseract_cmd, psm=11))
+        if len(sparse) > len(wide_seq):
+            wide_seq = sparse
+    if len(wide_seq) >= 2:
+        return wide_seq
+    return column_hits or wide_seq
+
+
 def detect_cv_page(gray, *, atype: str = 'QUE', frame=None, subject_id=None,
                    paper=None, profile: str | None = None, shrink_sides=None,
                    pad_frac: float = 0.006, grow_frac: float = 0.02,
                    frame_inset: float = 0.005,
                    low_confidence: float = CV_LOW_CONFIDENCE,
                    use_ocr: bool = True, tesseract_cmd: str = '',
-                   ocr_reader=None, generic_prompt: bool = False) -> dict:
+                   ocr_reader=None, strip_reader=None,
+                   generic_prompt: bool = False) -> dict:
     """Detect numbered question boxes on one grayscale page. No model call.
 
-    ``ocr_reader(anchor) -> int|None`` overrides Tesseract (tests). When OCR
-    is off or reads nothing, question numbers are 1..N in reading order and
-    the page is low-confidence (``qno_assumed``).
+    ``ocr_reader(anchor) -> int|None`` overrides per-blob Tesseract (tests).
+    ``strip_reader(gray) -> list[{qno, y, ...}]`` overrides the number-column
+    strip read (tests). A clear strip sequence replaces option-row blob spam.
+    When OCR is off or reads nothing, a short anchor run is numbered 1..N and
+    the page is low-confidence (``qno_assumed``). Eight or more unreadable
+    blobs are dropped instead of being numbered 1..N. A short run that OCR
+    only partly read keeps the readings and drops the rest.
 
     Returns ``boxes`` in the same shape as ``detect_page`` plus per-item
     ``confidence`` / ``reasons``, and page-level ``confidence``, ``low``,
@@ -967,8 +1460,28 @@ def detect_cv_page(gray, *, atype: str = 'QUE', frame=None, subject_id=None,
     nx0, nx1, col_ok = find_number_column(dark, x0, y0, x1, y1)
     if not col_ok:
         extra.append('number_column_guessed')
-    anchors = suppress_indented_anchors(
-        find_question_anchors(dark, x0, y0, x1, y1, nx0, nx1))
+    anchors = suppress_option_row_anchors(suppress_indented_anchors(
+        find_question_anchors(dark, x0, y0, x1, y1, nx0, nx1)))
+
+    strip_hits = []
+    if use_ocr:
+        if strip_reader is not None:
+            try:
+                strip_hits = _clear_qno_sequence(strip_reader(gray) or [])
+            except Exception as e:
+                logger.info('pdf-import cv strip reader failed: %s', e)
+                strip_hits = []
+        elif ocr_reader is None:
+            # Tests that inject ocr_reader skip the real strip so a local
+            # Tesseract cannot relabel synthetic bars.
+            strip_hits = _ocr_question_numbers(
+                gray, x0, y0, x1, y1, nx0, nx1, tesseract_cmd)
+    if strip_hits and _strip_should_replace(anchors, strip_hits):
+        anchors = _anchors_from_hits(strip_hits)
+        nx0, nx1 = _column_from_hits(strip_hits, w)
+        col_ok = True
+        if 'number_column_guessed' in extra:
+            extra.remove('number_column_guessed')
 
     readings = []
     if anchors:
@@ -976,16 +1489,40 @@ def detect_cv_page(gray, *, atype: str = 'QUE', frame=None, subject_id=None,
             reader = ocr_reader or (
                 lambda a: _read_qno_tesseract(gray, a, tesseract_cmd))
             for a in anchors:
-                try:
-                    readings.append(reader(a))
-                except Exception as e:
-                    logger.info('pdf-import cv OCR reader failed: %s', e)
-                    readings.append(None)
+                # A multi-hit strip sequence is the printed number column.
+                # A single hit is often a misread ("9." as "2") and must not
+                # override the per-blob reading; it only fills a blank.
+                labelled = (
+                    _match_hit_qno(a, strip_hits) if len(strip_hits) >= 2 else None)
+                blob = None
+                if labelled is None:
+                    try:
+                        blob = reader(a)
+                    except Exception as e:
+                        logger.info('pdf-import cv OCR reader failed: %s', e)
+                        blob = None
+                if labelled is not None:
+                    readings.append(labelled)
+                elif blob is not None:
+                    readings.append(blob)
+                else:
+                    readings.append(_match_hit_qno(a, strip_hits))
         else:
             readings = [None] * len(anchors)
-        how = _assign_qnos(anchors, readings)
-        if how == 'assumed':
+        how = _assign_qnos(
+            anchors, readings,
+            ocr_attempted=bool(
+                use_ocr and (
+                    ocr_reader is not None
+                    or strip_reader is not None
+                    or _tesseract_ready(tesseract_cmd))))
+        anchors = [a for a in anchors if not a.get('drop')]
+        if how == 'assumed' and anchors:
             extra.append('qno_assumed')
+        elif how == 'partial':
+            extra.append('qno_partial')
+        elif not anchors:
+            extra.append('no_anchors')
     else:
         extra.append('no_anchors')
 
