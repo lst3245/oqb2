@@ -233,22 +233,23 @@ class Config:
     # Deskew straightens skewed/rotated scanned pages during staging (NumPy).
     PDF_IMPORT_DESKEW_DEFAULT = os.getenv('PDF_IMPORT_DESKEW_DEFAULT', '1').strip().lower() in ('1', 'true', 'yes', 'on')
     # PDF Batch Import — default detection method pre-selected in Setup:
-    # 'llm' (model draws boxes), 'refine' (LLM boxes + CV edge-snap), or
-    # 'segment' (LLM start-anchors + CV projection segmentation).
+    # 'llm' (model draws boxes) or 'cv' (classical CV, no model call).
+    # Retired names refine / segment are not valid; the page falls back to llm.
     PDF_IMPORT_DEFAULT_METHOD = os.getenv('PDF_IMPORT_DEFAULT_METHOD', 'llm').strip().lower()
     # PDF Batch Import — safety margin (% of page) added around every detected
     # box before the final crop. Larger = safer against clipping content; the
     # white-trim still removes excess blank space afterwards, so content stays
     # the focus.
     PDF_IMPORT_CROP_PAD_PCT = float(os.getenv('PDF_IMPORT_CROP_PAD_PCT', '0.6'))
-    # PDF Batch Import — "refine" method: how far (% of page) to expand each
-    # LLM box into a search window before snapping back to content. Larger
-    # recovers more chopped text / nearby figures / marks but risks merging
-    # adjacent questions.
+    # PDF Batch Import — classical CV: how far (% of page) a question box may
+    # grow while its edges snap to ink. The search stops at the next anchor.
     PDF_IMPORT_REFINE_GROW_PCT = float(os.getenv('PDF_IMPORT_REFINE_GROW_PCT', '3.5'))
-    # PDF Batch Import — "refine"/"segment" methods: padding (% of page) kept
-    # around the detected content edges.
+    # PDF Batch Import — classical CV: padding (% of page) kept around the
+    # snapped ink.
     PDF_IMPORT_ASSIST_PAD_PCT = float(os.getenv('PDF_IMPORT_ASSIST_PAD_PCT', '0.6'))
+    # PDF Batch Import — a CV page or question at or below this score (0–1)
+    # is low-confidence. The UI offers an LLM re-run; it does not start one.
+    PDF_IMPORT_CV_LOW_CONFIDENCE = float(os.getenv('PDF_IMPORT_CV_LOW_CONFIDENCE', '0.55'))
     # PDF Batch Import — whether the "Trim whitespace" checkbox starts ticked.
     # When trimming is on, each imported crop is tightened to its non-white
     # content (drops blank answer space / loose margins). When off, the crop

@@ -341,7 +341,7 @@
                 <button id="btnReset" class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise"></i> {{ t('Start over') }}</button>
                 <button id="btnDiscard" class="btn btn-outline-danger"><i class="bi bi-trash"></i> {{ t('Discard') }}</button>
                 {% if not ai_enabled or not endpoints %}
-                <span class="text-muted small" id="detectDisabledHint">{{ t('Load a PDF first, or configure a vision endpoint to run detection.') }}</span>
+                <span class="text-muted small" id="detectDisabledHint">{% if numpy_available %}{{ t('Classical CV detection does not need a vision endpoint. The LLM method does.') }}{% else %}{{ t('Load a PDF first, or configure a vision endpoint to run detection.') }}{% endif %}</span>
                 {% endif %}
             </div>
             <div id="frameStatus" class="small text-muted mb-2 d-none"></div>
@@ -350,12 +350,11 @@
                 <div class="row g-3 pt-2">
                     <div class="col-md-6">
                         <label for="methodSelect" class="form-label fw-bold small mb-1">{{ t('Detection method') }}</label>
-                        <select id="methodSelect" class="form-select form-select-sm" {% if not endpoints %}disabled{% endif %}>
+                        <select id="methodSelect" class="form-select form-select-sm">
                             <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>{{ t('LLM only (model draws boxes)') }}</option>
-                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %}>{{ t('LLM assisted — refine boxes') }}</option>
-                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %}>{{ t('LLM assisted — segment') }}</option>
+                            <option value="cv" {% if not numpy_available %}disabled{% endif %} {% if default_method == 'cv' %}selected{% endif %}>{{ t('Classical CV (no model call)') }}</option>
                         </select>
-                        <div class="form-text">{{ t('<strong>Refine</strong>: model boxes snapped to the printed content by computer vision. <strong>Segment</strong>: the model only marks where each question starts; computer vision derives the boxes (single column only). Both need NumPy; each page can be re-run with another method.')|safe }}</div>
+                        <div class="form-text">{{ t('Classical CV finds the printed question numbers and builds the boxes with no model call (needs NumPy). Low-confidence pages are flagged; the LLM runs only if you ask. Generic extraction stays on LLM only.') }}</div>
                     </div>
                     <div class="col-md-6">
                         <div class="form-check exam-only">
@@ -374,6 +373,11 @@
                     </div>
                 </div>
             </details>
+            <div id="cvLowBanner" class="alert alert-warning d-none py-2 small d-flex flex-wrap align-items-center gap-2" role="status">
+                <i class="bi bi-exclamation-triangle"></i>
+                <span id="cvLowBannerText" class="flex-grow-1"></span>
+                <button type="button" class="btn btn-sm btn-warning" id="btnCvLlmFallback">{{ t('Re-detect low pages with LLM') }}</button>
+            </div>
             <div class="border rounded px-2 py-2 mb-2 d-flex flex-wrap align-items-center gap-2 exam-only" id="agentStrip">
                 <button id="btnRunAgent" class="btn btn-sm btn-outline-success" disabled title="{{ t('Outline the whole paper, locate and split every question, verify the boxes and list what needs a human look. Replaces the current boxes.') }}">
                     <i class="bi bi-stars"></i> {{ t('Run AI agent') }}
@@ -497,11 +501,12 @@
 const IMPORT_BASE = "{{ url_for('admin.pdf_import_page') }}";  // /admin/pdf-import
 const ENDPOINTS = {{ endpoints|tojson }};   // [{id, name, model_name}]
 const DEFAULT_METHOD = "{{ default_method }}";
+const NUMPY_OK = {{ numpy_available|tojson }};
 const FRAME_INSET = {{ frame_inset_frac|tojson }};   // fraction of page width inside the frame rails
 const GLOBAL_COORD_ORDER = {{ coord_order_default|tojson }};   // PDF_IMPORT_COORD_ORDER
 const WIDTH_MODE_DEFAULT = {{ width_mode_default|tojson }};    // PDF_IMPORT_WIDTH_MODE_DEFAULT
 const { clamp01, applyBoxStyle, drawPreview, showCropPreview } = OQBBboxEditor;
-const METHOD_LABELS = { llm: OQB.t('LLM only'), refine: OQB.t('Assisted: refine'), segment: OQB.t('Assisted: segment') };
+const METHOD_LABELS = { llm: OQB.t('LLM only'), cv: OQB.t('Classical CV') };
 
 // ----- DOM refs -----
 const paperInput = document.getElementById('paperInput');
@@ -590,14 +595,15 @@ function applyTaskUI() {
     document.getElementById('taskHint').textContent = generic
         ? OQB.t('Detect arbitrary regions you describe and download them as a ZIP (nothing is imported to the database).')
         : OQB.t('Detect each exam question / solution and import them as image assets.');
-    // The "segment" method is exam-specific; hide it for generic.
-    const segOpt = methodSelect.querySelector('option[value="segment"]');
-    if (segOpt) {
-        segOpt.disabled = generic;
-        segOpt.classList.toggle('d-none', generic);
-        if (generic && methodSelect.value === 'segment') methodSelect.value = 'llm';
+    // Classical CV is exam-only (numbered question column). Generic stays on LLM.
+    const cvOpt = methodSelect.querySelector('option[value="cv"]');
+    if (cvOpt) {
+        cvOpt.disabled = generic || !NUMPY_OK;
+        cvOpt.classList.toggle('d-none', generic);
+        if ((generic || !NUMPY_OK) && methodSelect.value === 'cv') methodSelect.value = 'llm';
     }
     updateInstructionVisibility();
+    refreshDetectGate();
     updateImportActions();
     refreshDetectLabel();
 }
@@ -613,6 +619,8 @@ document.querySelectorAll('input[name="task"]').forEach(el => el.addEventListene
     applyTaskUI();
 }));
 customPromptChk.addEventListener('change', updateInstructionVisibility);
+methodSelect.addEventListener('change', refreshDetectGate);
+document.getElementById('btnCvLlmFallback')?.addEventListener('click', () => { rerunLowWithLlm(); });
 // Crop width is review-time: switching conforms existing boxes to the new
 // policy (frame rails, then the shared uniform width); "model" leaves the
 // current geometry alone and makes boxes independent again.
@@ -712,6 +720,7 @@ const summaryPanel = document.getElementById('summaryPanel');
 let staging = null;        // {token, version, que:{pages}, sol:{pages}}
 let plan = { que: [], sol: [] };  // each item: {page, qno, box:[x1,y1,x2,y2], _uid}
 let rawByPage = { que: {}, sol: {} };  // debug: verbatim model reply per page index
+let pageCv = { que: {}, sol: {} };     // CV page score: {confidence, low, reasons, deskew_deg}
 let eventSource = null;
 let currentJobId = null;
 let running = false;
@@ -1030,6 +1039,77 @@ solPdf.addEventListener('change', () => {
 
 function pageImgUrl(token, kind, index) {
     return `${IMPORT_BASE}/page/${token}/${kind}/${index}.png`;
+}
+
+function bustPageImage(kind, idx) {
+    const card = cardFor(kind, idx);
+    const img = card && card.querySelector('.pdf-page-img');
+    if (!img || !staging) return;
+    img.addEventListener('load', () => redrawPreviews(card), { once: true });
+    img.src = pageImgUrl(staging.token, kind, idx) + '?v=' + Date.now();
+}
+
+function noteCvPage(kind, idx, page) {
+    if (!pageCv[kind]) pageCv[kind] = {};
+    const has = page && (page.confidence != null || page.low || page.deskew_deg);
+    if (!has) {
+        delete pageCv[kind][idx];
+        return;
+    }
+    pageCv[kind][idx] = {
+        confidence: page.confidence,
+        low: !!page.low,
+        reasons: page.reasons || [],
+        deskew_deg: page.deskew_deg || 0,
+    };
+    if (page.deskew_deg && Math.abs(Number(page.deskew_deg)) >= 0.3) bustPageImage(kind, idx);
+}
+
+function lowCvPages() {
+    const out = [];
+    ['que', 'sol'].forEach(kind => {
+        const bag = pageCv[kind] || {};
+        Object.keys(bag).forEach(idx => {
+            const meta = bag[idx];
+            if (meta && meta.low) out.push({ kind, index: parseInt(idx, 10), confidence: meta.confidence });
+        });
+    });
+    return out;
+}
+
+function showCvLowBanner() {
+    const el = document.getElementById('cvLowBanner');
+    if (!el) return;
+    const lows = lowCvPages();
+    if (!lows.length || isGeneric() || !staging) {
+        el.classList.add('d-none');
+        return;
+    }
+    el.classList.remove('d-none');
+    const text = document.getElementById('cvLowBannerText');
+    if (text) {
+        text.textContent = OQB.t('{n} low-confidence page(s) from classical CV. Re-detect them with the LLM only if you choose to — nothing is sent until you click.', {n: lows.length});
+    }
+    const btn = document.getElementById('btnCvLlmFallback');
+    if (btn) btn.disabled = !!running;
+}
+
+async function rerunLowWithLlm() {
+    if (!AI_ENABLED || !HAS_ENDPOINTS) {
+        alert(OQB.t('Configure a vision-capable LLM endpoint before re-detecting with the LLM.'));
+        return;
+    }
+    const lows = lowCvPages();
+    if (!lows.length) return;
+    if (!confirm(OQB.t('Re-detect the low-confidence pages with the LLM? This calls the vision model only for those pages.'))) return;
+    for (const p of lows) {
+        const card = cardFor(p.kind, p.index);
+        if (!card) continue;
+        const sel = card.querySelector('.page-method');
+        if (sel) sel.value = 'llm';
+        await rerunPage(card, p.kind, p.index);
+    }
+    showCvLowBanner();
 }
 
 // ----- Logging -----
@@ -1468,6 +1548,24 @@ function unlockPageJobs() {
     reviewBody.querySelectorAll(PAGE_JOB_SELECTORS).forEach(el => { el.disabled = false; });
 }
 
+function cvMethodSelected() {
+    return !!(methodSelect && methodSelect.value === 'cv' && !isGeneric() && NUMPY_OK);
+}
+function detectionBlocked() {
+    if (!staging) return true;
+    if (cvMethodSelected()) return false;
+    return !AI_ENABLED || !HAS_ENDPOINTS;
+}
+function refreshDetectGate() {
+    if (!btnRunDetect || running) return;
+    if (!staging) {
+        if (cvMethodSelected()) btnRunDetect.disabled = false;
+        else if (!AI_ENABLED || !HAS_ENDPOINTS) btnRunDetect.disabled = true;
+        return;
+    }
+    btnRunDetect.disabled = detectionBlocked();
+}
+
 function setRunning(on, phase) {
     running = on;
     phase = phase || 'idle';
@@ -1489,8 +1587,9 @@ function setRunning(on, phase) {
      customPromptChk, splitPartsChk, cropWidthSel, debugChk]
         .forEach(el => { if (el) el.disabled = lockDetect || !staging; });
     if (btnRunDetect) {
-        btnRunDetect.disabled = lockDetect || !staging || !AI_ENABLED || !HAS_ENDPOINTS;
+        btnRunDetect.disabled = lockDetect || detectionBlocked();
     }
+    showCvLowBanner();
     refreshSplitDetectBtn();
     refreshAgentBtn();
     [queVersionSelect, solVersionSelect, overwriteChk, trimWhiteChk]
@@ -1528,6 +1627,8 @@ async function loadPdf() {
     reviewBody.innerHTML = '';
     plan = { que: [], sol: [] };
     rawByPage = { que: {}, sol: {} };
+    pageCv = { que: {}, sol: {} };
+    document.getElementById('cvLowBanner')?.classList.add('d-none');
     uniformWidth = { que: null, sol: null };
 
     setRunning(true, 'stage');
@@ -1616,7 +1717,7 @@ async function loadPdf() {
 
 function runDetect() {
     if (!staging) { alert(OQB.t('Load a PDF first.')); return; }
-    if (!AI_ENABLED || !HAS_ENDPOINTS) {
+    if (!cvMethodSelected() && (!AI_ENABLED || !HAS_ENDPOINTS)) {
         alert(OQB.t('Configure a vision-capable LLM endpoint to run detection.'));
         return;
     }
@@ -1627,6 +1728,8 @@ function runDetect() {
 
 // ----- Detect (SSE) -----
 function startDetect() {
+    pageCv = { que: {}, sol: {} };
+    document.getElementById('cvLowBanner')?.classList.add('d-none');
     setRunning(true, 'detect');
     setStatus('Detecting', 'bg-success');
     showProgress(OQB.t('Detecting regions...'));
@@ -1664,9 +1767,13 @@ function startDetect() {
                 const item = { page: idx, qno: b.qno, label: b.label, box: b.box, _uid: nextUid(),
                                cp: !!b.continues_prev, cn: !!b.continues_next,
                                marks: kind === 'que' && Number.isInteger(b.marks) ? b.marks : null };
+                if (typeof b.confidence === 'number' && b.confidence >= 0 && b.confidence <= 1) {
+                    item.confidence = Math.round(b.confidence * 1000) / 1000;
+                }
                 if (!item.label && item.qno != null) applyExamLabel(item, String(item.qno));
                 plan[kind].push(item);
             });
+            noteCvPage(kind, idx, ev.page);
             if (ev.page.raw !== undefined) {
                 rawByPage[kind][idx] = ev.page.raw;
                 logRaw(kind, idx, ev.page.raw);
@@ -1706,6 +1813,7 @@ function finishDetect(opts) {
     }
     setRunning(false);
     setStatus('Review', 'bg-primary');
+    showCvLowBanner();
 }
 
 function shouldAutoSplit() {
@@ -2210,11 +2318,12 @@ function renderReview(opts) {
 }
 
 function methodOptionsHtml(selected) {
-    // 'segment' (question-anchor) is exam-specific; omit it for generic.
-    const methods = isGeneric() ? ['llm', 'refine'] : ['llm', 'refine', 'segment'];
+    const methods = isGeneric() ? ['llm'] : ['llm', 'cv'];
     if (!methods.includes(selected)) selected = 'llm';
-    return methods.map(m =>
-        `<option value="${m}"${m === selected ? ' selected' : ''}>${METHOD_LABELS[m]}</option>`).join('');
+    return methods.map(m => {
+        const dis = (m === 'cv' && !NUMPY_OK) ? ' disabled' : '';
+        return `<option value="${m}"${m === selected ? ' selected' : ''}${dis}>${METHOD_LABELS[m]}</option>`;
+    }).join('');
 }
 function endpointOptionsHtml(selectedId) {
     return ENDPOINTS.map(e =>
@@ -2379,7 +2488,17 @@ function setPageStatus(card, state) {
         }
         badge.classList.add(n ? 'bg-success' : 'bg-warning');
         if (!n) badge.classList.add('text-dark');
-        badge.textContent = n ? OQB.t('{n} region(s)', {n}) : OQB.t('no regions');
+        let text = n ? OQB.t('{n} region(s)', {n}) : OQB.t('no regions');
+        const cv = (pageCv[card.dataset.kind] || {})[card.dataset.page];
+        if (cv && cv.confidence != null && Number.isFinite(Number(cv.confidence))) {
+            text += ' · ' + OQB.t('CV {score}', {score: Number(cv.confidence).toFixed(2)});
+            if (cv.low) {
+                badge.classList.remove('bg-success');
+                badge.classList.add('bg-warning', 'text-dark');
+                if (cv.reasons && cv.reasons.length) badge.title = cv.reasons.join(', ');
+            }
+        }
+        badge.textContent = text;
     } else {
         badge.classList.add('d-none');
     }
@@ -3593,13 +3712,19 @@ async function rerunPage(card, kind, pageIndex) {
             const item = { page: pageIndex, qno: b.qno, label: b.label, box: b.box, _uid: nextUid(),
                            cp: !!b.continues_prev, cn: !!b.continues_next,
                            marks: kind === 'que' && Number.isInteger(b.marks) ? b.marks : null };
+            if (typeof b.confidence === 'number' && b.confidence >= 0 && b.confidence <= 1) {
+                item.confidence = Math.round(b.confidence * 1000) / 1000;
+            }
             plan[kind].push(item);
             addBoxDom(card, kind, item);
         });
+        if (pageMethod === 'cv') noteCvPage(kind, pageIndex, data);
+        else delete (pageCv[kind] || {})[pageIndex];
         toggleEmpty(card);
         card.dataset.pending = '0';
         setPageFailed(card, null);
         setPageStatus(card, 'done');
+        showCvLowBanner();
         // Same order as finishDetect: link/number first, then the width policy.
         // Custom-prompt exam: the re-detected page has no numbers — re-sequence
         // the whole side so question numbers stay 1..N in reading order.
@@ -3612,6 +3737,9 @@ async function rerunPage(card, kind, pageIndex) {
         applyWidthPolicy(kind);
         updateReviewSummary();
         appendLog(OQB.t('{side} page {page}: re-detected {n} region(s) [{method}].', {side: kind.toUpperCase(), page: pageIndex + 1, n: (data.boxes || []).length, method: METHOD_LABELS[pageMethod] || pageMethod}), 'success');
+        if (pageMethod === 'cv' && data.confidence != null) {
+            appendLog(OQB.t('CV confidence {score}.', {score: Number(data.confidence).toFixed(2)}), data.low ? 'warning' : 'info');
+        }
         if (data.raw !== undefined) {
             rawByPage[kind][pageIndex] = data.raw;
             logRaw(kind, pageIndex, data.raw);
@@ -3778,7 +3906,8 @@ function stopRun() {
 }
 function resetAll() {
     closeStream();
-    staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; currentJobId = null;
+    staging = null; plan = { que: [], sol: [] }; rawByPage = { que: {}, sol: {} }; pageCv = { que: {}, sol: {} }; currentJobId = null;
+    document.getElementById('cvLowBanner')?.classList.add('d-none');
     selectedItem = null; selectedKind = null;
     uniformWidth = { que: null, sol: null };
     cropWidthSel.value = WIDTH_MODE_DEFAULT;

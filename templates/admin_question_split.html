@@ -54,8 +54,7 @@
                         </select>
                         <select id="splitMethod" class="form-select form-select-sm d-none" style="max-width: 14rem;" title="{{ t('Pass-1 detection method (only used when the image is a full exam page)') }}">
                             <option value="llm" {% if default_method == 'llm' %}selected{% endif %}>{{ t('LLM only') }}</option>
-                            <option value="refine" {% if default_method == 'refine' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>{{ t('LLM + refine') }}</option>
-                            <option value="segment" {% if default_method == 'segment' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>{{ t('LLM + segment') }}</option>
+                            <option value="cv" {% if default_method == 'cv' %}selected{% endif %} {% if not numpy_available %}disabled{% endif %}>{{ t('Classical CV (no model call)') }}</option>
                         </select>
                         <button type="button" class="btn btn-sm btn-primary" id="autoDetectBtn" onclick="autoDetect()">
                             <i class="bi bi-robot"></i> {{ t('Auto-detect parts') }}

@@ -65,10 +65,11 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | PDF Import | `PDF_IMPORT_COORD_ORDER` | `xyxy|yxyx` | `xyxy` | default bbox axis order for endpoints whose "Box axis order" is blank (`llm_client.box_coord_order`); PDF import, PDF tool scan, MD figure cropping |
 | PDF Import | `PDF_IMPORT_LLM_TIMEOUT_SECONDS` | int 0–600 | 60 | per-call model timeout for PDF import detect / part split (incl. IMG Split auto-detect) / paper-name guess; replaces the endpoint's `timeout_seconds` for these calls only; 0 = endpoint's. A page Re-run (`/redo-page`) uses the longer of this and the endpoint's `timeout_seconds` |
 | PDF Import | `PDF_IMPORT_DESKEW_DEFAULT` | bool | True | "Auto-deskew scans" starts ticked |
-| PDF Import | `PDF_IMPORT_DEFAULT_METHOD` | `llm|refine|segment` | `llm` | detection method pre-selected |
+| PDF Import | `PDF_IMPORT_DEFAULT_METHOD` | `llm\|cv` | `llm` | detection method pre-selected (`refine`/`segment` are no longer valid) |
 | PDF Import | `PDF_IMPORT_CROP_PAD_PCT` | float 0–10 | 0.6 | safety margin (% of page) around every box |
-| PDF Import | `PDF_IMPORT_REFINE_GROW_PCT` | float 0–20 | 3.5 | refine: search-window growth |
-| PDF Import | `PDF_IMPORT_ASSIST_PAD_PCT` | float 0–10 | 0.6 | refine/segment: content padding |
+| PDF Import | `PDF_IMPORT_REFINE_GROW_PCT` | float 0–20 | 3.5 | CV: ink-snap grow, stops at the next question |
+| PDF Import | `PDF_IMPORT_ASSIST_PAD_PCT` | float 0–10 | 0.6 | CV: padding around snapped ink |
+| PDF Import | `PDF_IMPORT_CV_LOW_CONFIDENCE` | float 0.05–0.95 | 0.55 | CV score at or below this is low; LLM re-run is opt-in |
 | PDF Import | `PDF_IMPORT_TRIM_WHITE_DEFAULT` | bool | False | "Trim whitespace" starts ticked |
 | PDF Import | `PDF_IMPORT_WIDTH_MODE_DEFAULT` | `auto|uniform|model` | `auto` | initial "Crop width" mode: printed frame else uniform width per side / uniform width everywhere / the model's own boxes (ADR-014; replaced `PDF_IMPORT_UNIFORM_WIDTH_DEFAULT` + `PDF_IMPORT_FRAME_SNAP_DEFAULT`) |
 | PDF Import | `PDF_IMPORT_FRAME_INSET_PCT` | float 0–5 | 0.5 | inset inside detected frame rails (% of page width) |
