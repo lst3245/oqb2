@@ -64,7 +64,7 @@ one or more super admins (users, subjects, settings, everything).
 | AI Prompts registry + variants | `admin_bp` `/admin/prompts` | `app/ai_prompts.py` | [modules/ai-prompts.md](docs/modules/ai-prompts.md) |
 | Subject AI tuning (per-subject Auto Tag instructions, taxonomy hints, preview, evaluate, correction log) | `subject_ai_bp` `/admin/subjects/<sid>/ai` | `app/subject_ai.py`, `app/subject_ai_service.py` | [modules/subject-ai.md](docs/modules/subject-ai.md) |
 | Subject restore points (auto snapshot before every tag / taxonomy save, manual snapshot, preview, per-subject restore) | `restore_points_bp` `/admin/restore-points` | `app/restore_points.py`, `app/subject_snapshot.py` | [modules/subject-snapshots.md](docs/modules/subject-snapshots.md) |
-| PDF Batch Import | `admin_bp` `/admin/pdf-import` | `app/pdf_import.py`, `app/pdf_layout.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) |
+| PDF Batch Import | `admin_bp` `/admin/pdf-import` | `app/pdf_import.py`, `app/pdf_layout.py`, `app/pdf_cv_detect.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) |
 | PDF Import AI agent | `admin_bp` `/admin/pdf-import/agent` | `app/pdf_agent.py` | [modules/pdf-agent.md](docs/modules/pdf-agent.md) |
 | Ingestion + Smart Import | `admin_bp` `/admin/import`, `cli.py` | `app/ingestor.py`, `app/smart_import.py` | [modules/ingestion.md](docs/modules/ingestion.md) |
 | Question marks + spacing by marks (leaf marks, whole-question total, per-subject spacing rules) | cross-cutting; `admin_bp` `/admin/subjects/<sid>/marks-spacing` | `app/marks_spacing.py`, `app/hierarchy.py`, `app/generator.py` | [modules/marks.md](docs/modules/marks.md) |

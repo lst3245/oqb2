@@ -446,8 +446,8 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
     ('PDF_IMPORT_DEFAULT_METHOD', _spec(
         'PDF_IMPORT_DEFAULT_METHOD', 'string', group='PDF Import',
         label='Default detection method',
-        help='Detection method pre-selected in PDF Import Setup. "llm" = the model draws boxes (works without NumPy). "refine" = the model draws boxes, then classical CV snaps each edge to the printed content. "segment" = the model only marks where each question starts and CV derives the boxes. refine/segment need NumPy; users can change the method per run and per page.',
-        validator=_choice_validator('llm', 'refine', 'segment'),
+        help='Detection method pre-selected in PDF Import Setup. "llm" = the model draws boxes (works without NumPy). "cv" = classical computer vision finds question numbers and boxes with no model call (needs NumPy; optional local Tesseract). Low-confidence CV pages stay as drawn until you choose to re-detect them with the LLM. Users can change the method per run and per page.',
+        validator=_choice_validator('llm', 'cv'),
     )),
     ('PDF_IMPORT_CROP_PAD_PCT', _spec(
         'PDF_IMPORT_CROP_PAD_PCT', 'float', group='PDF Import',
@@ -457,15 +457,21 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
     )),
     ('PDF_IMPORT_REFINE_GROW_PCT', _spec(
         'PDF_IMPORT_REFINE_GROW_PCT', 'float', group='PDF Import',
-        label='Assisted "refine": grow window (% of page)',
-        help='For the "LLM assisted — refine boxes" method: how far each LLM box is expanded into a search window (% of page) before the CV snaps it back to the printed content. Larger recovers more chopped text, a marks line just below, or a figure just outside the box — but too large can swallow part of the next question. Default 3.5.',
+        label='CV detection: ink-snap grow (% of page)',
+        help='For classical CV detection: how far (% of page) a question box may grow while its edges snap to printed ink. The search stops at the next question start. Larger recovers a marks line or a figure just outside the ink; too large can pull in a footer. Default 3.5.',
         min=0.0, max=20.0,
     )),
     ('PDF_IMPORT_ASSIST_PAD_PCT', _spec(
         'PDF_IMPORT_ASSIST_PAD_PCT', 'float', group='PDF Import',
-        label='Assisted "refine"/"segment": content pad (% of page)',
-        help='For the LLM-assisted methods: padding kept around the detected content edges (% of page) after the CV tightens the box. A small value hugs the content; increase it for a little breathing room. Default 0.6.',
+        label='CV detection: content pad (% of page)',
+        help='For classical CV detection: padding kept around the snapped ink (% of page). A small value hugs the content. Default 0.6.',
         min=0.0, max=10.0,
+    )),
+    ('PDF_IMPORT_CV_LOW_CONFIDENCE', _spec(
+        'PDF_IMPORT_CV_LOW_CONFIDENCE', 'float', group='PDF Import',
+        label='CV low-confidence threshold',
+        help='A classical-CV page (or any question on it) at or below this score, from 0 to 1, is marked low-confidence. PDF Import then offers an LLM re-detect for those pages and does not call the model unless you accept. Default 0.55.',
+        min=0.05, max=0.95,
     )),
     ('PDF_IMPORT_TRIM_WHITE_DEFAULT', _spec(
         'PDF_IMPORT_TRIM_WHITE_DEFAULT', 'bool', group='PDF Import',

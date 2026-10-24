@@ -2860,7 +2860,9 @@ def split_question(question_id):
     endpoints = _pdf_vision_endpoints()
     default_ep = _pdf_default_endpoint()
     default_method = str(current_app.config.get('PDF_IMPORT_DEFAULT_METHOD', 'llm')).strip().lower()
-    if default_method in ('refine', 'segment') and not pdf_layout.numpy_available():
+    if default_method not in pdf_import.DETECT_METHODS:
+        default_method = 'llm'
+    if default_method == 'cv' and not pdf_layout.numpy_available():
         default_method = 'llm'
     return render_template(
         'admin_question_split.html',
@@ -5768,7 +5770,7 @@ def _pdf_load_token_meta(token):
 @admin_required
 def pdf_import_page():
     """PDF Batch Import management page."""
-    from app import pdf_import
+    from app import pdf_import, pdf_layout
     subjects = get_user_admin_subjects()
     endpoints = [{'id': c.id, 'name': c.name, 'model_name': c.model_name,
                   'kind': c.kind or 'local', 'max_concurrency': c.max_concurrency or 1,
@@ -5776,6 +5778,9 @@ def pdf_import_page():
                  for c in _pdf_vision_endpoints()]
     default_method = str(current_app.config.get('PDF_IMPORT_DEFAULT_METHOD', 'llm')).strip().lower()
     if default_method not in pdf_import.DETECT_METHODS:
+        default_method = 'llm'
+    numpy_ok = pdf_layout.numpy_available()
+    if default_method == 'cv' and not numpy_ok:
         default_method = 'llm'
     width_mode = str(current_app.config.get('PDF_IMPORT_WIDTH_MODE_DEFAULT', 'auto')).strip().lower()
     if width_mode not in ('auto', 'uniform', 'model'):
@@ -5797,6 +5802,7 @@ def pdf_import_page():
         coord_order_default=(coord_order if coord_order in ('xyxy', 'yxyx') else 'xyxy'),
         frame_inset_frac=pdf_import.frame_inset_frac(current_app.config),
         default_method=default_method,
+        numpy_available=numpy_ok,
         default_endpoint_id=(default_endpoint.id if default_endpoint else None),
         pdf_source_path=pdf_source_root,
         pdf_source_available=bool(pdf_source_root and os.path.isdir(pdf_source_root)),
@@ -6000,34 +6006,41 @@ def pdf_import_detect():
     from app import pdf_import
     from app.models import LLMConfig
 
-    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+    method = (request.args.get('method', 'llm') or 'llm').strip().lower()
+    if method not in pdf_import.DETECT_METHODS:
+        method = 'llm'
+    cv_only = method == 'cv'
+
+    if not cv_only and not current_app.config.get('AI_TOOLS_ENABLED', True):
         return _pdf_sse_error('AI features are disabled.')
 
     token = request.args.get('token', '')
     meta, err = _pdf_load_token_meta(token)
     if err:
         return _pdf_sse_error(err)
+    if cv_only and meta.get('mode') == 'generic':
+        return _pdf_sse_error(
+            'Classical CV detection is for numbered exam pages. '
+            'Generic extraction uses the LLM method.')
 
     try:
         endpoint_id = int(request.args.get('endpoint_id', '0'))
     except (ValueError, TypeError):
         endpoint_id = 0
-    if endpoint_id <= 0:
-        cfg = _pdf_default_endpoint()
-        if cfg is None:
-            return _pdf_sse_error('No vision-capable LLM endpoint is configured.')
-        endpoint_id = cfg.id
-    else:
-        cfg = LLMConfig.query.get(endpoint_id)
-        if cfg is None or not cfg.enabled:
-            return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
-        if not cfg.supports_vision:
-            return _pdf_sse_error('The selected endpoint is not vision-capable.')
-
+    cfg = None
+    if not cv_only:
+        if endpoint_id <= 0:
+            cfg = _pdf_default_endpoint()
+            if cfg is None:
+                return _pdf_sse_error('No vision-capable LLM endpoint is configured.')
+            endpoint_id = cfg.id
+        else:
+            cfg = LLMConfig.query.get(endpoint_id)
+            if cfg is None or not cfg.enabled:
+                return _pdf_sse_error('Selected LLM endpoint not found or disabled.')
+            if not cfg.supports_vision:
+                return _pdf_sse_error('The selected endpoint is not vision-capable.')
     debug = request.args.get('debug', '0').strip().lower() in ('1', 'true', 'yes', 'on')
-    method = (request.args.get('method', 'llm') or 'llm').strip().lower()
-    if method not in pdf_import.DETECT_METHODS:
-        method = 'llm'
     want_parallel = request.args.get('parallel', '0').strip().lower() in ('1', 'true', 'yes', 'on')
     frame_snap = request.args.get('frame_snap', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
@@ -6060,11 +6073,16 @@ def pdf_import_detect():
             yield f"data: {json.dumps({'type': 'job', 'job_id': job_id})}\n\n"
             try:
                 from app.models import LLMConfig as _Cfg
-                live_cfg = _Cfg.query.get(endpoint_id)
-                live_cfg._batch = True  # opt into service_tier_batch
                 image_max_dim = int(app.config.get('LLM_IMAGE_MAX_DIM', 1600))
-                workers = max(1, int(getattr(live_cfg, 'max_concurrency', 1) or 1))
-                do_par = bool(want_parallel and getattr(live_cfg, 'kind', 'local') == 'cloud' and workers > 1)
+                if cv_only:
+                    live_cfg = None
+                    do_par = False
+                    workers = 1
+                else:
+                    live_cfg = _Cfg.query.get(endpoint_id)
+                    live_cfg._batch = True  # opt into service_tier_batch
+                    workers = max(1, int(getattr(live_cfg, 'max_concurrency', 1) or 1))
+                    do_par = bool(want_parallel and getattr(live_cfg, 'kind', 'local') == 'cloud' and workers > 1)
                 for ev in pdf_import.iter_detect(app, cancel, token, live_cfg,
                                                  image_max_dim, debug=debug,
                                                  method=method,
@@ -6254,10 +6272,15 @@ def pdf_import_redo_page():
     from app import pdf_import
     from app.models import LLMConfig
 
-    if not current_app.config.get('AI_TOOLS_ENABLED', True):
+    data = request.get_json(silent=True) or {}
+    method = (data.get('method') or 'llm').strip().lower()
+    if method not in pdf_import.DETECT_METHODS:
+        method = 'llm'
+    cv_only = method == 'cv'
+
+    if not cv_only and not current_app.config.get('AI_TOOLS_ENABLED', True):
         return jsonify({'error': _t('AI features are disabled.')}), 400
 
-    data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
     kind = (data.get('kind') or '').strip()
     meta, err = _pdf_load_token_meta(token)
@@ -6269,22 +6292,25 @@ def pdf_import_redo_page():
         index = int(data.get('index'))
     except (ValueError, TypeError):
         return jsonify({'error': _t('invalid page index')}), 400
+    if cv_only and meta.get('mode') == 'generic':
+        return jsonify({'error': _t(
+            'Classical CV detection is for numbered exam pages. '
+            'Generic extraction uses the LLM method.')}), 400
 
-    raw_eid = data.get('endpoint_id')
-    if raw_eid in (None, '', 0, '0'):
-        cfg = _pdf_default_endpoint()
-        if cfg is None:
-            return jsonify({'error': _t('No vision-capable LLM endpoint is configured.')}), 400
-    else:
-        cfg = LLMConfig.query.get(raw_eid or 0)
-        if cfg is None or not cfg.enabled or not cfg.supports_vision:
-            return jsonify({'error': _t('Selected LLM endpoint is unavailable or not vision-capable.')}), 400
+    cfg = None
+    if not cv_only:
+        raw_eid = data.get('endpoint_id')
+        if raw_eid in (None, '', 0, '0'):
+            cfg = _pdf_default_endpoint()
+            if cfg is None:
+                return jsonify({'error': _t('No vision-capable LLM endpoint is configured.')}), 400
+        else:
+            cfg = LLMConfig.query.get(raw_eid or 0)
+            if cfg is None or not cfg.enabled or not cfg.supports_vision:
+                return jsonify({'error': _t('Selected LLM endpoint is unavailable or not vision-capable.')}), 400
 
     image_max_dim = int(current_app.config.get('LLM_IMAGE_MAX_DIM', 1600))
     debug = bool(data.get('debug'))
-    method = (data.get('method') or 'llm').strip().lower()
-    if method not in pdf_import.DETECT_METHODS:
-        method = 'llm'
 
     instruction = (data.get('instruction') or '').strip()[:2000]
     if 'custom_prompt' in data:
@@ -6313,12 +6339,16 @@ def pdf_import_redo_page():
         return jsonify({'error': str(e)}), 400
 
     try:
+        timeout = None if cv_only else pdf_import.redo_timeout(cfg)
         boxes, raw = pdf_import.detect_single_page(cfg, token, kind, index,
                                                    image_max_dim, method=method,
-                                                   timeout=pdf_import.redo_timeout(cfg))
+                                                   timeout=timeout)
     except Exception as e:
         current_app.logger.exception('PDF import redo-page failed')
         return jsonify({'error': _t('Detection failed: {e}', e=e)}), 502
+    cv_meta = None
+    if cv_only:
+        cv_meta, raw = pdf_import._peel_cv_meta(raw)
     # Same alignment rule as full detect / split: the page frame governs x.
     if bool(data.get('frame_snap')) and meta.get('mode') != 'generic':
         meta = pdf_import.ensure_frames(token, meta)
@@ -6329,6 +6359,12 @@ def pdf_import_redo_page():
         for b, t in zip(boxes, tmp):
             b['box'] = t['box']
     out = {'boxes': boxes}
+    if cv_meta:
+        out['confidence'] = cv_meta.get('confidence')
+        out['low'] = bool(cv_meta.get('low'))
+        out['reasons'] = list(cv_meta.get('reasons') or [])
+        if cv_meta.get('deskew_deg'):
+            out['deskew_deg'] = cv_meta.get('deskew_deg')
     if debug:
         current_app.logger.info('pdf-import raw redo (%s page %s):\n%s', kind, index + 1, raw)
         out['raw'] = (raw or '')[:6000]

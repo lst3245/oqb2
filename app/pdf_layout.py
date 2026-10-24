@@ -1,27 +1,23 @@
 """
 Classical-CV layout helpers for PDF Batch Import (no LLM).
 
-These back the "LLM assisted" detection sub-modes and the scan deskew:
+Used by the ``cv`` detection method (:mod:`app.pdf_cv_detect`), scan deskew,
+and the stem-fill ink check:
 
-  * ``deskew_image``  - straighten a skewed/rotated scanned page before any
-    cropping, by maximising the variance of the horizontal projection profile
-    over a small angle sweep.
-  * ``refine_box``    - tighten/expand a single LLM bounding box to the actual
-    printed content using projection profiles (recovers chopped text, a marks
-    line just below, or a figure just outside; drops blank answer-space
-    margins).
-  * ``segment_page``  - given the LLM's per-question START anchors (just a y per
-    question), derive each question's true top/bottom (and optionally
-    left/right) from the whitespace gaps between blocks.
+  * ``deskew_image`` / ``skew_angle_degrees`` - straighten a skewed scan by
+    maximising the variance of the horizontal projection profile.
+  * ``refine_box``    - snap a box to the printed ink inside a search window
+    (projection profiles). Recovers a marks line or figure just outside the
+    band and drops blank margins.
+  * ``segment_page``  - given per-question START anchors (a y per question),
+    derive each question's top/bottom from the whitespace gap to the next
+    anchor.
   * ``detect_page_frame`` - find the printed rectangle border (the "answers in
     the margin will not be marked" frame on DSE answer books) so question
-    crops can share one left edge / width across pages of a scanned paper.
+    crops can share one left edge / width.
 
-All geometry is fractional ``[x1, y1, x2, y2]`` (0..1) to match the rest of the
-pipeline (resolution-independent: the LLM sees a downscaled page, crops are cut
-from the high-res page). NumPy is required; callers should treat ImportError /
-RuntimeError as "assisted mode unavailable" and fall back to plain LLM
-detection (or skip deskew).
+All geometry is fractional ``[x1, y1, x2, y2]`` (0..1). NumPy is required;
+callers treat ImportError / RuntimeError as "CV unavailable".
 """
 from __future__ import annotations
 
@@ -45,7 +41,7 @@ def numpy_available() -> bool:
 def _require_numpy():
     if not _NUMPY_OK:
         raise RuntimeError(
-            'NumPy is required for LLM-assisted PDF detection / deskew. '
+            'NumPy is required for classical CV detection and deskew. '
             'Install it (pip install "numpy>=1.26") and restart the server.')
 
 
@@ -125,19 +121,17 @@ def has_ink(gray, box, min_dark_frac: float = 0.005, skip_left_frac: float = 0.0
 
 # ==================== Deskew ====================
 
-def deskew_image(img, max_angle: float = 6.0, coarse_step: float = 1.0,
-                 fine_step: float = 0.2, search_width: int = 1000,
-                 min_angle: float = 0.3):
-    """Return a deskewed copy of ``img`` (PIL Image, RGB).
+def skew_angle_degrees(img, max_angle: float = 6.0, coarse_step: float = 1.0,
+                       fine_step: float = 0.2, search_width: int = 1000,
+                       min_angle: float = 0.3) -> float:
+    """Return the small rotation (degrees) that straightens ``img``.
 
-    Estimates the small skew angle by maximising the variance of the
-    horizontal projection profile (row-sum of dark pixels) of the binarised
-    page over a coarse-then-fine sweep in ``[-max_angle, +max_angle]`` degrees,
-    then rotates the full-resolution page by that angle with a white fill.
-    Returns the page unchanged when the best angle is within ``min_angle``
-    degrees of 0 (avoids needless resampling blur). ``expand=False`` keeps the
-    output dimensions identical to the input (so cached page width/height stay
-    valid)."""
+    Maximises the variance of the horizontal projection profile (row-sum of
+    dark pixels) over a coarse-then-fine sweep in ``[-max_angle, +max_angle]``.
+    Returns ``0.0`` when the best angle is within ``min_angle`` of zero so
+    callers can skip a needless resample. Positive values match
+    ``PIL.Image.rotate`` (counter-clockwise).
+    """
     _require_numpy()
     from PIL import Image
 
@@ -168,15 +162,51 @@ def deskew_image(img, max_angle: float = 6.0, coarse_step: float = 1.0,
         if s > best_s:
             best_s, best_a = s, a
         a += fine_step
-
-    rgb = img if img.mode == 'RGB' else img.convert('RGB')
     if abs(best_a) < min_angle:
+        return 0.0
+    return float(best_a)
+
+
+def deskew_image(img, max_angle: float = 6.0, coarse_step: float = 1.0,
+                 fine_step: float = 0.2, search_width: int = 1000,
+                 min_angle: float = 0.3):
+    """Return a deskewed copy of ``img`` (PIL Image, RGB).
+
+    See :func:`skew_angle_degrees`. ``expand=False`` keeps the output size
+    identical to the input (cached page width/height stay valid). The page is
+    returned unchanged when the angle is within ``min_angle`` of 0.
+    """
+    from PIL import Image
+
+    angle = skew_angle_degrees(img, max_angle=max_angle, coarse_step=coarse_step,
+                               fine_step=fine_step, search_width=search_width,
+                               min_angle=min_angle)
+    rgb = img if img.mode == 'RGB' else img.convert('RGB')
+    if angle == 0.0:
         return rgb
-    return rgb.rotate(best_a, resample=Image.BICUBIC, expand=False,
+    return rgb.rotate(angle, resample=Image.BICUBIC, expand=False,
                       fillcolor=(255, 255, 255))
 
 
-# ==================== Box refinement (method = 'refine') ====================
+def deskew_png_inplace(png_path: str) -> float:
+    """Straighten a staged page PNG in place. Returns the angle applied (0 if
+    the page was already straight). Crops and the review image then share the
+    same pixels."""
+    from PIL import Image
+
+    with Image.open(png_path) as im:
+        im.load()
+        rgb = im.convert('RGB')
+    angle = skew_angle_degrees(rgb)
+    if angle == 0.0:
+        return 0.0
+    out = rgb.rotate(angle, resample=Image.BICUBIC, expand=False,
+                     fillcolor=(255, 255, 255))
+    out.save(png_path, format='PNG')
+    return float(angle)
+
+
+# ==================== Box refinement (ink snap) ====================
 
 def refine_box(gray, box, shrink_sides: bool = True, grow_frac: float = 0.035,
                pad_frac: float = 0.006, threshold=None):
@@ -239,7 +269,7 @@ def refine_box(gray, box, shrink_sides: bool = True, grow_frac: float = 0.035,
     return [new_left, new_top, new_right, new_bot]
 
 
-# ==================== Anchor segmentation (method = 'segment') ====================
+# ==================== Anchor segmentation ====================
 
 def segment_page(gray, anchors, shrink_sides: bool = True,
                  pad_frac: float = 0.006, threshold=None):

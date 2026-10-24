@@ -394,6 +394,13 @@ def sanitize_plan(raw, *, generic: bool = False) -> dict:
                     marks = None
                 if marks is not None:
                     row['marks'] = marks
+            conf = item.get('confidence')
+            try:
+                conf = float(conf)
+            except (TypeError, ValueError):
+                conf = None
+            if conf is not None and 0.0 <= conf <= 1.0:
+                row['confidence'] = round(conf, 3)
             clean[kind].append(row)
         if not generic:
             if kind == 'que':
@@ -902,73 +909,163 @@ def _sent_image_size(png_path: str, image_max_dim: int):
     return llm_client.sent_image_size(png_path, image_max_dim)
 
 
-DETECT_METHODS = ('llm', 'refine', 'segment')
+DETECT_METHODS = ('llm', 'cv')
+
+
+def _peel_cv_meta(raw: str):
+    """Split the JSON summary line off a CV debug transcript.
+
+    Returns ``(meta_or_None, debug_text)``. LLM transcripts are returned
+    unchanged.
+    """
+    if not raw or not raw.startswith('{'):
+        return None, raw
+    line, sep, rest = raw.partition('\n')
+    try:
+        meta = json.loads(line)
+    except (ValueError, TypeError):
+        return None, raw
+    if not isinstance(meta, dict) or 'confidence' not in meta:
+        return None, raw
+    return meta, rest if sep else ''
+
+
+def _cv_settings(config_obj=None):
+    """Pad / grow / inset / low-confidence for one CV pass.
+
+    ``config_obj`` is a mapping (``app.config`` or ``current_app.config``).
+    """
+    src = config_obj if config_obj is not None else current_app.config
+
+    def _f(key, default):
+        try:
+            return float(src.get(key, default))
+        except (TypeError, ValueError):
+            return float(default)
+
+    return {
+        'pad_frac': max(0.0, _f('PDF_IMPORT_ASSIST_PAD_PCT', 0.6)) / 100.0,
+        'grow_frac': max(0.0, _f('PDF_IMPORT_REFINE_GROW_PCT', 3.5)) / 100.0,
+        'frame_inset': max(0.0, _f('PDF_IMPORT_FRAME_INSET_PCT', 0.5)) / 100.0,
+        'low_confidence': min(0.95, max(0.05, _f('PDF_IMPORT_CV_LOW_CONFIDENCE', 0.55))),
+        'tesseract_cmd': str(src.get('TESSERACT_CMD', '') or ''),
+    }
+
+
+def _detect_page_cv(png_path: str, atype: str, *, mode: str, generic_prompt: bool,
+                    frame=None, subject_id=None, paper=None):
+    """Classical detection for one page. Does not import or call ``llm_client``.
+
+    A soft skew is written back onto the staged PNG so later crops match.
+    Returns ``(boxes, raw_text)``; ``raw_text`` starts with a one-line JSON
+    summary (``confidence``, ``low``, ``reasons``, ``deskew_deg``).
+    """
+    from app import pdf_layout, pdf_cv_detect
+
+    if (mode or 'exam').strip().lower() == 'generic':
+        raise RuntimeError(
+            'Classical CV detection is for numbered exam pages. '
+            'Generic extraction uses the LLM method.')
+    cfg = _cv_settings()
+    try:
+        deskew_deg = pdf_layout.deskew_png_inplace(png_path)
+    except Exception as e:
+        logger.warning('pdf-import cv deskew skipped: %s', e)
+        deskew_deg = 0.0
+    gray = pdf_layout.load_gray(png_path)
+    result = pdf_cv_detect.detect_cv_page(
+        gray, atype=atype, frame=frame, subject_id=subject_id, paper=paper,
+        pad_frac=cfg['pad_frac'], grow_frac=cfg['grow_frac'],
+        frame_inset=cfg['frame_inset'], low_confidence=cfg['low_confidence'],
+        use_ocr=True, tesseract_cmd=cfg['tesseract_cmd'],
+        generic_prompt=bool(generic_prompt))
+    meta = {
+        'confidence': result['confidence'],
+        'low': bool(result['low']),
+        'reasons': result['reasons'],
+        'deskew_deg': round(float(deskew_deg), 3),
+        'profile': result['profile'],
+    }
+    boxes = []
+    for b in result['boxes']:
+        boxes.append({
+            'qno': b.get('qno'),
+            'label': b.get('label'),
+            'box': b['box'],
+            'continues_prev': bool(b.get('continues_prev')),
+            'continues_next': bool(b.get('continues_next')),
+            'confidence': b.get('confidence'),
+            'reasons': list(b.get('reasons') or []),
+        })
+    raw = json.dumps(meta) + '\n' + (result.get('debug') or '')
+    return boxes, raw
 
 
 def detect_page(config, png_path: str, atype: str, image_max_dim: int,
                 method: str = 'llm', mode: str = 'exam', instruction: str = '',
-                generic_prompt: bool = False, expected_labels=None, timeout=None):
+                generic_prompt: bool = False, expected_labels=None, timeout=None,
+                frame=None, subject_id=None, paper=None):
     """Detect the question/solution regions on one page.
 
     ``timeout`` (seconds) overrides :func:`llm_timeout` for the model call.
+    It is ignored by ``method='cv'``.
 
     ``expected_labels`` (agent runs) lists the question numbers the paper
     outline places on this page; it is folded into the exam prompts as a
-    hint and ignored for generic / segment methods.
+    hint. ``method='cv'`` does not read it.
 
     ``mode`` is ``'exam'`` (the default — question/solution detection) or
     ``'generic'`` (no exam context; the model is asked to find regions
-    matching the free-text ``instruction``). In generic mode the ``segment``
-    method is not meaningful and falls back to ``llm``; returned boxes carry a
-    ``label`` instead of a ``qno``.
+    matching the free-text ``instruction``). ``method='cv'`` is exam-only
+    and raises ``RuntimeError`` in generic mode (it does not fall back to
+    the model). Generic boxes carry a ``label`` instead of a ``qno``.
 
     ``generic_prompt`` lets EXAM mode borrow the context-free generic prompt
     (driven by ``instruction``) while still returning exam-shaped boxes — used
     to extract questions from non-exam material (e.g. a textbook) and import
     them with auto-numbered question numbers. The returned boxes then carry
-    ``qno: None`` (the caller assigns the running number).
+    ``qno: None`` (the caller assigns the running number). With ``method='cv'``
+    the instruction is not sent anywhere; the page is marked low-confidence
+    (``custom_prompt_ignored``) so the UI can offer an LLM re-run.
 
     ``method``:
-      * ``'llm'``     - the model returns tight boxes (original behaviour).
-      * ``'refine'``  - the model returns boxes, then classical CV snaps each
-        box to the printed content (recovers chopped text / marks / figures,
-        drops answer-space margins). See :func:`app.pdf_layout.refine_box`.
-      * ``'segment'`` - the model returns only each item's START y; classical
-        CV derives the boxes from the whitespace gaps. See
-        :func:`app.pdf_layout.segment_page`.
+      * ``'llm'`` - the model returns tight boxes (unchanged).
+      * ``'cv'``  - classical CV only (:func:`_detect_page_cv`). No model call.
+        ``frame`` is a consolidated frame entry or ``None`` (the page is
+        scanned). ``subject_id`` / ``paper`` select post-rules.
 
-    For ``refine`` / ``segment`` the side edges are only tightened on QUE pages
-    (``shrink_sides``); SOL pages keep full width so right-hand marking
-    side-notes are never trimmed.
+    A name other than ``llm`` or ``cv`` (including the retired ``refine`` and
+    ``segment``) is treated as ``llm``.
 
-    Returns ``(boxes, raw_text)`` where ``boxes`` is a list of
-    ``{qno, label, box:[x1,y1,x2,y2], continues_prev, continues_next}`` (fractional
-    coords; ``label`` is the canonical token without ``Q``) and ``raw_text`` is
-    the model's verbatim reply (kept for the debug view). Raises on transport
-    failure or when an assisted method is requested without NumPy.
+    Returns ``(boxes, raw_text)``. Exam boxes are
+    ``{qno, label, box:[x1,y1,x2,y2], continues_prev, continues_next}``
+    (fractional). CV boxes also carry ``confidence`` and ``reasons``.
+    ``raw_text`` is the model's verbatim reply, or for CV a JSON summary line
+    plus a short debug transcript. Raises on transport failure, or when CV
+    is requested without NumPy / on a generic session.
     """
-    from app import ai_prompts, llm_client
-
     method = (method or 'llm').strip().lower()
     if method not in DETECT_METHODS:
         method = 'llm'
     mode = (mode or 'exam').strip().lower()
+    if method == 'cv':
+        return _detect_page_cv(
+            png_path, atype, mode=mode, generic_prompt=generic_prompt,
+            frame=frame, subject_id=subject_id, paper=paper)
+
+    from app import ai_prompts, llm_client
+
     coord_order = llm_client.box_coord_order(config)
-    shrink_sides = (atype == 'QUE')
     call_timeout = timeout or llm_timeout()
 
     b64, mime = llm_client.prepare_image(png_path, image_max_dim)
     sw, sh = _sent_image_size(png_path, image_max_dim)
 
-    assist_pad = max(0.0, float(current_app.config.get('PDF_IMPORT_ASSIST_PAD_PCT', 0.6))) / 100.0
-    refine_grow = max(0.0, float(current_app.config.get('PDF_IMPORT_REFINE_GROW_PCT', 3.5))) / 100.0
-
     if mode == 'generic' or generic_prompt:
         # Context-free prompt: the model finds regions matching the user
-        # request. 'segment' (anchor) detection is exam-specific, so it
-        # collapses to llm here. In generic MODE each box keeps its label; for
-        # an exam run borrowing this prompt the box is exam-shaped with
-        # qno=None (the caller assigns the running question number).
+        # request. In generic MODE each box keeps its label; for an exam run
+        # borrowing this prompt the box is exam-shaped with qno=None (the
+        # caller assigns the running question number).
         system = ai_prompts.build_pdf_generic_system(instruction, coord_order,
                                                      endpoint_id=config.id)
         user_text = ai_prompts.build_pdf_generic_user_text(
@@ -977,17 +1074,6 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
                                   timeout=call_timeout)
         gboxes = ai_prompts.parse_generic_boxes(text, img_w=sw, img_h=sh,
                                                 coord_order=coord_order)
-        if method == 'refine':
-            from app import pdf_layout
-            gray = pdf_layout.load_gray(png_path)
-            for g in gboxes:
-                try:
-                    g['box'] = pdf_layout.refine_box(gray, g['box'],
-                                                     shrink_sides=(shrink_sides and mode != 'generic'),
-                                                     grow_frac=refine_grow,
-                                                     pad_frac=assist_pad)
-                except Exception as e:  # pragma: no cover — keep the LLM box
-                    logger.warning('pdf-import generic refine_box failed: %s', e)
         if mode == 'generic':
             boxes = [{'label': g.get('label'), 'box': g['box']} for g in gboxes]
         else:
@@ -995,32 +1081,6 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
                       'continues_prev': False, 'continues_next': False} for g in gboxes]
         return boxes, (text or '')
 
-    if method == 'segment':
-        from app import pdf_layout
-        system = ai_prompts.build_pdf_anchor_system(atype, endpoint_id=config.id)
-        user_text = ai_prompts.build_pdf_anchor_user_text(atype,
-                                                          endpoint_id=config.id)
-        text, _info = llm_client.chat(config, system, user_text, images=[(b64, mime)],
-                                  timeout=call_timeout)
-        anchors = ai_prompts.parse_question_anchors(text, img_h=sh,
-                                                    coord_order=coord_order)
-        gray = pdf_layout.load_gray(png_path)
-        seg = pdf_layout.segment_page(gray, anchors, shrink_sides=shrink_sides,
-                                      pad_frac=assist_pad)
-        from app.hierarchy import normalize_plan_label
-        boxes = []
-        for s in seg:
-            qno = s.get('qno')
-            boxes.append({
-                'qno': qno,
-                'label': normalize_plan_label(qno),
-                'box': s['box'],
-                'continues_prev': False,
-                'continues_next': False,
-            })
-        return boxes, (text or '')
-
-    # 'llm' or 'refine': the model returns full boxes.
     system = ai_prompts.build_pdf_box_system(atype, coord_order,
                                              endpoint_id=config.id,
                                              expected_labels=expected_labels)
@@ -1031,19 +1091,6 @@ def detect_page(config, png_path: str, atype: str, image_max_dim: int,
                                   timeout=call_timeout)
     boxes = ai_prompts.parse_question_boxes(text, img_w=sw, img_h=sh,
                                             coord_order=coord_order)
-
-    if method == 'refine':
-        from app import pdf_layout
-        gray = pdf_layout.load_gray(png_path)
-        for b in boxes:
-            try:
-                b['box'] = pdf_layout.refine_box(gray, b['box'],
-                                                 shrink_sides=shrink_sides,
-                                                 grow_frac=refine_grow,
-                                                 pad_frac=assist_pad)
-            except Exception as e:  # pragma: no cover — keep the LLM box
-                logger.warning('pdf-import refine_box failed: %s', e)
-
     return boxes, (text or '')
 
 
@@ -1208,15 +1255,15 @@ def _check_method_available(method: str):
     """Return an error string if ``method`` needs NumPy and it's missing,
     else None. Lets iter_detect fail fast with one clear message instead of
     erroring on every page."""
-    if (method or 'llm') in ('refine', 'segment'):
+    if (method or 'llm') == 'cv':
         try:
             from app import pdf_layout
             if not pdf_layout.numpy_available():
-                return ('LLM-assisted detection needs NumPy, which is not '
+                return ('Classical CV detection needs NumPy, which is not '
                         'installed. Install it (pip install "numpy>=1.26") or '
                         'use the "LLM only" method.')
         except Exception:  # pragma: no cover
-            return 'LLM-assisted detection module failed to load.'
+            return 'Classical CV detection module failed to load.'
     return None
 
 
@@ -1238,8 +1285,8 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
     read them even without the browser echoing them back. When ``debug`` is
     set, each page's verbatim model output is logged and attached to the
     page event so coordinate problems can be diagnosed in the browser.
-    ``method`` selects LLM-only vs an assisted CV method (see
-    :func:`detect_page`).
+    ``method`` is ``llm`` (one model call per page) or ``cv`` (no model call;
+    see :func:`detect_page`).
 
     When ``parallel`` is set (cloud endpoints) the per-page LLM round-trips fan
     out across ``max_workers`` threads. Boxes are accumulated on the consumer
@@ -1278,12 +1325,16 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                'total': total, 'stats': _empty_stats(), 'plan': plan}
         return
 
-    method_label = {'llm': 'LLM only', 'refine': 'LLM assisted (refine)',
-                    'segment': 'LLM assisted (segment)'}.get(method, method)
-    yield {'type': 'info',
-           'message': (f'Detecting questions across {total} page(s) with model '
-                       f'{config.model_name} [{method_label}]...'),
-           'current': 0, 'total': total}
+    if method == 'cv':
+        yield {'type': 'info',
+               'message': (f'Detecting questions across {total} page(s) with '
+                           'classical CV (no model call)...'),
+               'current': 0, 'total': total}
+    else:
+        yield {'type': 'info',
+               'message': (f'Detecting questions across {total} page(s) with model '
+                           f'{config.model_name} [LLM only]...'),
+               'current': 0, 'total': total}
 
     # Flat work list (one LLM call per page) shared by both branches.
     work = []
@@ -1303,8 +1354,15 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 plan[kind].append({'page': idx, 'label': b.get('label'), 'box': b['box']})
             elif custom_prompt:
                 # qno assigned at the end in reading order (see _number_custom).
-                plan[kind].append({'page': idx, 'qno': None, 'label': None,
-                                   'box': b['box']})
+                row = {'page': idx, 'qno': None, 'label': None, 'box': b['box']}
+                conf = b.get('confidence')
+                try:
+                    conf = float(conf)
+                except (TypeError, ValueError):
+                    conf = None
+                if conf is not None and 0.0 <= conf <= 1.0:
+                    row['confidence'] = round(conf, 3)
+                plan[kind].append(row)
             else:
                 qno = b.get('qno')
                 label = b.get('label') or normalize_plan_label(qno)
@@ -1324,18 +1382,37 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                        '_cn': bool(b.get('continues_next'))}
                 if kind == 'que' and b.get('marks') is not None:
                     row['marks'] = b['marks']
+                conf = b.get('confidence')
+                try:
+                    conf = float(conf)
+                except (TypeError, ValueError):
+                    conf = None
+                if conf is not None and 0.0 <= conf <= 1.0:
+                    row['confidence'] = round(conf, 3)
                 plan[kind].append(row)
 
-    def _page_event(kind, atype, idx, boxes, raw):
+    def _page_event(kind, atype, idx, boxes, raw, cv_meta=None):
         page_ev = {'kind': kind, 'index': idx, 'boxes': boxes}
+        if cv_meta:
+            page_ev['confidence'] = cv_meta.get('confidence')
+            page_ev['low'] = bool(cv_meta.get('low'))
+            page_ev['reasons'] = list(cv_meta.get('reasons') or [])
+            if cv_meta.get('deskew_deg'):
+                page_ev['deskew_deg'] = cv_meta.get('deskew_deg')
+            if cv_meta.get('low'):
+                low_pages.append({'kind': kind, 'index': idx,
+                                  'confidence': cv_meta.get('confidence')})
         if debug:
             logger.info('pdf-import raw (%s page %s):\n%s', kind, idx + 1, raw)
             page_ev['raw'] = (raw or '')[:6000]
         noun = 'region(s)' if is_generic else 'question region(s)'
         label = 'Page' if is_generic else atype
-        return {'type': 'success',
-                'message': f'{label} {idx + 1}: found {len(boxes)} {noun}.',
-                'page': page_ev}
+        message = f'{label} {idx + 1}: found {len(boxes)} {noun}.'
+        if cv_meta and cv_meta.get('confidence') is not None:
+            message += f" CV confidence {float(cv_meta['confidence']):.2f}."
+            if cv_meta.get('low'):
+                message += ' Low — an LLM re-run is offered, not started.'
+        return {'type': 'success', 'message': message, 'page': page_ev}
 
     def _finalize_detect():
         """Resolve question numbers once ALL pages are collected, so the result
@@ -1376,19 +1453,35 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
 
     def _detect(item):
         png = page_png_path(token, item['kind'], item['idx'])
-        return _call_with_llm_retry(
-            f'pdf-import detect {item["kind"]} page {item["idx"] + 1}',
-            lambda: detect_page(config, png, item['atype'], image_max_dim,
-                                method, mode=meta.get('mode', 'exam'),
-                                instruction=instruction,
-                                generic_prompt=custom_prompt,
-                                expected_labels=item.get('expected')))
+        frames = ((meta.get(item['kind']) or {}).get('frames')) or []
+        frame = frames[item['idx']] if 0 <= item['idx'] < len(frames) else None
+        kwargs = dict(
+            frame=frame, subject_id=meta.get('subject'), paper=meta.get('paper'))
+        if method == 'cv':
+            # No retry: there is no model call to flake.
+            boxes, raw = detect_page(
+                config, png, item['atype'], image_max_dim, method,
+                mode=meta.get('mode', 'exam'), instruction=instruction,
+                generic_prompt=custom_prompt, expected_labels=item.get('expected'),
+                **kwargs)
+        else:
+            boxes, raw = _call_with_llm_retry(
+                f'pdf-import detect {item["kind"]} page {item["idx"] + 1}',
+                lambda: detect_page(config, png, item['atype'], image_max_dim,
+                                    method, mode=meta.get('mode', 'exam'),
+                                    instruction=instruction,
+                                    generic_prompt=custom_prompt,
+                                    expected_labels=item.get('expected'),
+                                    **kwargs))
+        cv_meta, raw = _peel_cv_meta(raw) if method == 'cv' else (None, raw)
+        return boxes, raw, cv_meta
 
     def _worker(item):
-        boxes, raw = _detect(item)
-        return {'boxes': boxes, 'raw': raw}
+        boxes, raw, cv_meta = _detect(item)
+        return {'boxes': boxes, 'raw': raw, 'cv': cv_meta}
 
     failed = []
+    low_pages = []
 
     def _failed_event(kind, atype, idx, err):
         failed.append({'kind': kind, 'index': idx})
@@ -1405,6 +1498,9 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
         if failed:
             pages = ', '.join(f'{f["kind"].upper()} {f["index"] + 1}' for f in failed)
             msg += f' {len(failed)} page(s) failed ({pages}) — re-run them.'
+        if low_pages:
+            msg += (f' {len(low_pages)} page(s) are low-confidence. '
+                    'The LLM is not called unless you ask to re-detect them.')
         return msg
 
     done = 0
@@ -1422,9 +1518,10 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                 yield _failed_event(kind, atype, idx, r['error'])
                 continue
             boxes, raw = r['result']['boxes'], r['result']['raw']
+            cv_meta = r['result'].get('cv')
             _ingest(kind, idx, boxes)
             qcount += len(boxes)
-            ev = _page_event(kind, atype, idx, boxes, raw)
+            ev = _page_event(kind, atype, idx, boxes, raw, cv_meta)
             ev['current'] = done; ev['total'] = total
             yield ev
     else:
@@ -1439,7 +1536,7 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
                        'plan': plan}
                 return
             try:
-                boxes, raw = _detect(item)
+                boxes, raw, cv_meta = _detect(item)
             except Exception as e:  # transport / parse failure for this page
                 done += 1
                 yield _failed_event(kind, atype, idx, e)
@@ -1447,7 +1544,7 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
             _ingest(kind, idx, boxes)
             qcount += len(boxes)
             done += 1
-            ev = _page_event(kind, atype, idx, boxes, raw)
+            ev = _page_event(kind, atype, idx, boxes, raw, cv_meta)
             ev['current'] = done; ev['total'] = total
             yield ev
 
@@ -1457,13 +1554,13 @@ def iter_detect(app, cancel, token: str, config, image_max_dim: int,
         yield {'type': 'done', 'message': 'Detection cancelled.',
                'current': done, 'total': total,
                'stats': {'pages': done, 'questions': qcount},
-               'plan': plan, 'failed': failed}
+               'plan': plan, 'failed': failed, 'low_pages': low_pages}
     else:
         yield {'type': 'done',
                'message': _done_message(),
                'current': total, 'total': total,
                'stats': {'pages': total, 'questions': qcount},
-               'plan': plan, 'failed': failed}
+               'plan': plan, 'failed': failed, 'low_pages': low_pages}
 
 
 def detect_single_page(config, token: str, kind: str, index: int,
@@ -1472,20 +1569,25 @@ def detect_single_page(config, token: str, kind: str, index: int,
     """Re-run detection for a single page (the review-mode 'Re-run page'
     button and the agent's reconcile step), optionally with a different
     ``method``. ``timeout`` overrides the import timeout (see
-    :func:`redo_timeout`). Returns ``(boxes, raw_text)``. Raises a clear error
-    if an assisted method is requested without NumPy."""
+    :func:`redo_timeout`) and is ignored for ``method='cv'``. Returns
+    ``(boxes, raw_text)``. Raises a clear error if CV is requested without
+    NumPy."""
     err = _check_method_available(method)
     if err:
         raise RuntimeError(err)
-    meta = load_meta(token)
+    meta = ensure_frames(token, load_meta(token))
     atype = 'QUE' if kind == 'que' else 'SOL'
     png = page_png_path(token, kind, index)
     custom_prompt = (meta.get('mode') != 'generic') and bool(meta.get('custom_prompt'))
+    frames = ((meta.get(kind) or {}).get('frames')) or []
+    frame = frames[index] if 0 <= index < len(frames) else None
     return detect_page(config, png, atype, image_max_dim, method,
                        mode=meta.get('mode', 'exam'),
                        instruction=meta.get('instruction', ''),
                        generic_prompt=custom_prompt,
-                       expected_labels=expected_labels, timeout=timeout)
+                       expected_labels=expected_labels, timeout=timeout,
+                       frame=frame, subject_id=meta.get('subject'),
+                       paper=meta.get('paper'))
 
 
 def _stitch_continuations(plan: dict):
