@@ -192,6 +192,9 @@ class Config:
     MD_DEFAULT_LLM = os.getenv('MD_DEFAULT_LLM', '')
     CHECK_DEFAULT_LLM = os.getenv('CHECK_DEFAULT_LLM', '')
     PDF_IMPORT_DEFAULT_LLM = os.getenv('PDF_IMPORT_DEFAULT_LLM', '')
+    # Paper-name auto-guess only. Blank = the PDF Import detection endpoint
+    # (PDF_IMPORT_DEFAULT_LLM), not the first vision endpoint.
+    PDF_PAPER_NAME_DEFAULT_LLM = os.getenv('PDF_PAPER_NAME_DEFAULT_LLM', '')
     SMART_IMPORT_DEFAULT_LLM = os.getenv('SMART_IMPORT_DEFAULT_LLM', '')
     # Per-feature timeout override for interactive LLM chat (the dashboard
     # Explain tutor and the LLM Endpoints chat console). Reasoning models

@@ -5570,12 +5570,13 @@ def _pdf_source_root():
 
 
 def _pdf_default_endpoint():
-    """Endpoint used for PDF Batch Import auto-fallbacks (paper-name guess
-    and the bbox detector when no `endpoint_id` is supplied).
+    """Endpoint for PDF Batch Import detection when no ``endpoint_id`` is
+    supplied.
 
     Honours ``PDF_IMPORT_DEFAULT_LLM`` first (vision-only), then falls back
     to ``EXPLAIN_DEFAULT_LLM`` for continuity with the previous behaviour,
-    then to the first enabled vision-capable endpoint."""
+    then to the first enabled vision-capable endpoint. The paper-name guess
+    does not use this directly; see ``_pdf_paper_name_endpoint``."""
     from app import llm_client
     cfg = llm_client.resolve_default_endpoint('PDF_IMPORT_DEFAULT_LLM',
                                               vision_only=True)
@@ -5583,6 +5584,24 @@ def _pdf_default_endpoint():
         return cfg
     return llm_client.resolve_default_endpoint('EXPLAIN_DEFAULT_LLM',
                                                vision_only=True)
+
+
+def _pdf_paper_name_endpoint():
+    """Endpoint for the PDF Import paper-name auto-guess.
+
+    ``PDF_PAPER_NAME_DEFAULT_LLM`` when it names an enabled vision-capable
+    endpoint. Blank, or a name that is missing, disabled, or not
+    vision-capable, uses the detection endpoint (``_pdf_default_endpoint``).
+    """
+    from app.models import LLMConfig
+    name = (current_app.config.get('PDF_PAPER_NAME_DEFAULT_LLM') or '').strip()
+    if name:
+        cfg = (LLMConfig.query
+               .filter_by(name=name, enabled=True, supports_vision=True)
+               .first())
+        if cfg:
+            return cfg
+    return _pdf_default_endpoint()
 
 
 class _ServerPDF:
@@ -5689,15 +5708,16 @@ def pdf_import_source_list():
 @admin_required
 def pdf_import_guess_paper():
     """Best-guess the paper name (SUBJECT_SOURCE_YEAR_PAPER) for a PDF using
-    the default LLM and the PDF's file name + first page. Accepts either an
-    uploaded PDF (``pdf`` file field) or a ``server_path`` under
-    PDF_SOURCE_PATH. Returns ``{paper, filename}`` (paper may be null)."""
+    ``PDF_PAPER_NAME_DEFAULT_LLM`` (or the PDF Import endpoint when that is
+    blank) and the PDF's file name + first page. Accepts either an uploaded
+    PDF (``pdf`` file field) or a ``server_path`` under PDF_SOURCE_PATH.
+    Returns ``{paper, filename}`` (paper may be null)."""
     from app import pdf_import
 
     if not current_app.config.get('AI_TOOLS_ENABLED', True):
         return jsonify({'error': _t('AI features are disabled.')}), 400
 
-    config = _pdf_default_endpoint()
+    config = _pdf_paper_name_endpoint()
     if config is None:
         return jsonify({'error': _t('No vision-capable LLM endpoint is configured.')}), 400
 

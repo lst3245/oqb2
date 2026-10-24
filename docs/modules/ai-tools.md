@@ -99,7 +99,7 @@ Each checks `AI_TOOLS_ENABLED` (400) and the question's subject (403), then `_ai
 - `_merge_request_extra` shallow-merges validated `request_extra_json` (must be a JSON object, ≤ 8192 bytes via `parse_request_extra_json`) over the request body — provider-specific keys such as Poe Chat `extra_body` fields.
 - Service tier: `_resolve_service_tier` sends `service_tier_batch` when `config._batch` is truthy, else `service_tier`; blank ⇒ param omitted.
 - Box axis order: `box_coord_order(config)` → `'xyxy'` / `'yxyx'` — the endpoint's `box_coord_order`, else `PDF_IMPORT_COORD_ORDER`. Every bounding-box prompt + parser (PDF import pass 1 / pass 2, PDF tool scan, MD figure locate) reads it through this helper; it uses `getattr`, so it also works on a config object without the column.
-- Local servers stay on Chat Completions with reasoning off; OpenRouter GPT-5.5 can use Chat + `reasoning`; Poe reasoning models should use Responses.
+- Local servers stay on Chat Completions with reasoning off; OpenRouter GPT-5.5 can use Chat + `reasoning`; Poe reasoning models should use Responses. Poe `mistral-small-3` is Chat Completions only (Responses returns 400 `Model does not support responses method`) and its output cap is 4096. A `system` role makes that bot return HTTP 500 `provider_error`; `_build_chat_payload` folds the system text into the first user turn when `model_name` is `mistral-small-3` (case-insensitive, exact id — not `mistral-small-3.1`). The bot accepts images (`text,image->text`).
 
 ### API-key storage (hybrid)
 
@@ -122,7 +122,8 @@ Each checks `AI_TOOLS_ENABLED` (400) and the question's subject (403), then `_ai
 | `SOLVEGEN_DEFAULT_LLM` | `_default_ai_endpoint` | `ai_solve_generate`, `ai_solve_generate_slot`, `ai_answer_text` (generate) |
 | `SOLVECHECK_DEFAULT_LLM` | `_default_ai_endpoint` | `ai_solve_check`, `ai_solve_check_slot`, `ai_answer_text` (check) |
 | `AUTOTAG_DEFAULT_LLM` | `_default_ai_endpoint` | `ai_auto_tag`, `ai_suggest_tags` |
-| `PDF_IMPORT_DEFAULT_LLM` | `_pdf_default_endpoint` (falls through to `EXPLAIN_DEFAULT_LLM`) | [pdf-import.md](pdf-import.md) |
+| `PDF_IMPORT_DEFAULT_LLM` | `_pdf_default_endpoint` (falls through to `EXPLAIN_DEFAULT_LLM`) | PDF Import detection, re-runs, part split ([pdf-import.md](pdf-import.md)) |
+| `PDF_PAPER_NAME_DEFAULT_LLM` | `_pdf_paper_name_endpoint` (blank or unusable → `_pdf_default_endpoint`) | PDF Import paper-name guess only |
 | `EXPLAIN_DEFAULT_LLM` | `_default_explain_endpoint` (`named_vision_only=False`) | [dashboard.md](dashboard.md) |
 | `SMART_IMPORT_DEFAULT_LLM` | text-only task, `vision_only=False` | Smart Import "Analyze with AI" |
 
@@ -189,7 +190,7 @@ DB-backed tunables live in `app/settings.py` REGISTRY (group "AI Tools") and hot
 |---|---|---|
 | `AI_TOOLS_ENABLED` | bool | Master switch. Off ⇒ every AI route returns 400 and the UI hides AI buttons (`window.OQB_AI_TOOLS_ENABLED`) |
 | `LLM_IMAGE_MAX_DIM` | int (256-4096) | Long-edge downscale before base64 encoding (default 1600) |
-| `CHECK_DEFAULT_LLM`, `MD_DEFAULT_LLM`, `SOLVEGEN_DEFAULT_LLM`, `SOLVECHECK_DEFAULT_LLM`, `AUTOTAG_DEFAULT_LLM`, `PDF_IMPORT_DEFAULT_LLM`, `EXPLAIN_DEFAULT_LLM`, `SMART_IMPORT_DEFAULT_LLM` | string (endpoint name, `choices_fn=_llm_endpoint_choices`) | Per-feature default endpoint; blank = auto-pick (see resolver above) |
+| `CHECK_DEFAULT_LLM`, `MD_DEFAULT_LLM`, `SOLVEGEN_DEFAULT_LLM`, `SOLVECHECK_DEFAULT_LLM`, `AUTOTAG_DEFAULT_LLM`, `PDF_IMPORT_DEFAULT_LLM`, `PDF_PAPER_NAME_DEFAULT_LLM`, `EXPLAIN_DEFAULT_LLM`, `SMART_IMPORT_DEFAULT_LLM` | string (endpoint name, `choices_fn=_llm_endpoint_choices`) | Per-feature default endpoint; blank = auto-pick (see resolver above). `PDF_PAPER_NAME_DEFAULT_LLM` is the exception: blank uses the PDF Import detection endpoint, not the first vision endpoint |
 | `LLM_CHAT_TIMEOUT_SECONDS` | int | Timeout for interactive streams (Explain + Chat console), default 600; the per-endpoint `timeout_seconds` still applies to batch ops |
 | `LLM_REASONING_EFFORT_DEFAULT` | string (`off`/`low`/`medium`/`high`) | Inherited by endpoints with blank `reasoning_effort` |
 | `LLM_REASONING_SUMMARY_DEFAULT` | string (`auto`/`none`) | Inherited by Responses endpoints with blank `reasoning_summary`; Chat endpoints ignore it |
@@ -220,7 +221,7 @@ DB-backed tunables live in `app/settings.py` REGISTRY (group "AI Tools") and hot
 3. LLM JSON is unreliable: `parse_check_result` returns `None` on total failure and the caller stores the raw reply with `check_state='error'`. Empty replies are also `error` (with `_empty_reply_hint` on `finish_reason`).
 4. Images are downscaled to `LLM_IMAGE_MAX_DIM` before sending; embedded MD figures use the original bytes.
 5. Rotating `LLM_KEY_SECRET` (or `SECRET_KEY` when the former is blank) invalidates every stored `api_key_enc`; `key_resolves` drops to the `.env` fallback and admins must re-enter keys.
-6. Claude via Poe: never send top-level `reasoning` — Poe translates it to the deprecated `thinking.type.enabled` which Claude 4.6+ rejects. `_is_claude_model` switches to `thinking: {type: adaptive}` + `output_config.effort`; summary `auto` adds `thinking.display: summarized`.
+6. Claude via Poe: never send top-level `reasoning` — Poe translates it to the deprecated `thinking.type.enabled` which Claude 4.6+ rejects. `_is_claude_model` switches to `thinking: {type: adaptive}` + `output_config.effort`; summary `auto` adds `thinking.display: summarized`. Poe `mistral-small-3`: Chat Completions only, and never a `system` role (the client folds it into the user turn). Do not switch that endpoint to Responses.
 7. Responses streaming: harvest text only from `*.delta` events. Do not also read `response.output_item.done` — providers (Poe, OpenAI) already streamed that text, and reading both duplicates output.
 8. `service_tier` / `service_tier_batch` are sent only when non-empty; batch wins over single only when `config._batch` is set (transient attribute; never persisted).
 9. Reasoning precedence: endpoint `off` wins over everything (no params sent); endpoint blank inherits the system default; system default `off` ⇒ omitted.

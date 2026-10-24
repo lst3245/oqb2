@@ -8,7 +8,9 @@ from app.llm_client import (
     _build_responses_payload,
     _extract_message_parts,
     _extract_responses_parts,
+    _fold_system_into_user,
     _messages_to_responses_input,
+    _rejects_system_role,
     _resolve_reasoning,
     _responses_stream_deltas,
     parse_request_extra_json,
@@ -216,6 +218,44 @@ class TestResponseParsing(unittest.TestCase):
         })
         self.assertEqual(c2, '')
         self.assertEqual(r2, '')
+
+
+class TestPoeMistralSystemFold(unittest.TestCase):
+    """Poe mistral-small-3 rejects a system role. No app / DB."""
+
+    def test_exact_model_id_only(self):
+        self.assertTrue(_rejects_system_role(_cfg(model_name='mistral-small-3')))
+        self.assertTrue(_rejects_system_role(_cfg(model_name='Mistral-Small-3')))
+        self.assertFalse(_rejects_system_role(_cfg(model_name='mistral-small-3.1')))
+        self.assertFalse(_rejects_system_role(_cfg(model_name='gpt-5.4')))
+
+    def test_folds_system_into_text_block_and_keeps_image(self):
+        original = [
+            {'role': 'system', 'content': 'Be brief.'},
+            {'role': 'user', 'content': [
+                {'type': 'text', 'text': 'What is this?'},
+                {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,aa'}},
+            ]},
+        ]
+        folded = _fold_system_into_user(original)
+        self.assertEqual(original[1]['content'][0]['text'], 'What is this?')
+        self.assertEqual(len(folded), 1)
+        self.assertEqual(folded[0]['role'], 'user')
+        self.assertEqual(
+            folded[0]['content'][0]['text'],
+            'Be brief.\n\nWhat is this?',
+        )
+        self.assertEqual(folded[0]['content'][1]['type'], 'image_url')
+
+    def test_no_system_returns_same_list(self):
+        messages = [{'role': 'user', 'content': 'Hi'}]
+        self.assertIs(_fold_system_into_user(messages), messages)
+
+    def test_system_only_becomes_user(self):
+        folded = _fold_system_into_user([
+            {'role': 'system', 'content': 'Instructions.'},
+        ])
+        self.assertEqual(folded, [{'role': 'user', 'content': 'Instructions.'}])
 
 
 if __name__ == '__main__':

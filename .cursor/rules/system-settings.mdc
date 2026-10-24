@@ -24,6 +24,6 @@ Spec and the full key table: `docs/core/06-system-settings.md`. Decision: ADR-00
 5. `label`, `help` (and a new `group`) as keys in `app/translations/zh_Hant.json` — the page shows them via `OQB.t`; `tests.test_i18n` fails on a missing key.
 
 ## Gotchas
-- Blank `*_DEFAULT_LLM` means "first enabled vision endpoint by sort order"; `SMART_IMPORT_DEFAULT_LLM` is text-only (`vision_only=False`).
+- Blank `*_DEFAULT_LLM` means "first enabled vision endpoint by sort order"; `SMART_IMPORT_DEFAULT_LLM` is text-only (`vision_only=False`). `PDF_PAPER_NAME_DEFAULT_LLM` blank uses the PDF Import detection endpoint (`_pdf_paper_name_endpoint`), not the first vision endpoint.
 - `TOOLBOX_SESSION_RETENTION_HOURS` has no `Config` attribute; code falls back to the registry default (48).
 - Thumbnail settings apply to new renders only; existing PNGs need Health → Force Re-render.

@@ -54,7 +54,8 @@ Entry: `_spec(key, type, group, label, help, min?, max?, validator?, choices_fn?
 | AI Tools | `CHECK_DEFAULT_LLM` | string (select) | `''` | Proofread / Quick check |
 | AI Tools | `SOLVEGEN_DEFAULT_LLM` | string (select) | `''` | Solve → generate ANS / SOL / Answer Text |
 | AI Tools | `SOLVECHECK_DEFAULT_LLM` | string (select) | `''` | Solve → check ANS / SOL / Answer Text |
-| AI Tools | `PDF_IMPORT_DEFAULT_LLM` | string (select) | `''` | PDF Import bbox detect + paper-name guess (falls back to `EXPLAIN_DEFAULT_LLM`) |
+| AI Tools | `PDF_IMPORT_DEFAULT_LLM` | string (select) | `''` | PDF Import bbox detect (falls back to `EXPLAIN_DEFAULT_LLM`) |
+| AI Tools | `PDF_PAPER_NAME_DEFAULT_LLM` | string (select) | `''` | PDF Import paper-name guess only. Blank, or a name that is not an enabled vision endpoint, uses `PDF_IMPORT_DEFAULT_LLM` |
 | AI Tools | `SMART_IMPORT_DEFAULT_LLM` | string (select) | `''` | Smart Import "Analyze with AI" — **text-only**, vision not required |
 | AI Tools | `LLM_CHAT_TIMEOUT_SECONDS` | int 0–3600 | 600 | interactive chat timeout (Explain, admin chat console); 0 = endpoint's own |
 | AI Tools | `LLM_REASONING_EFFORT_DEFAULT` | `off|low|medium|high` | `off` | inherited by endpoints with blank effort |

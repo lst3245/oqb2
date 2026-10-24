@@ -357,9 +357,21 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Default LLM for PDF Batch Import',
         help=(
             'LLM endpoint pre-selected for PDF Batch Import bounding-box '
-            'detection AND the paper-name auto-guess. Leave blank to auto-'
-            'pick the first enabled vision-capable endpoint. Per-page re-'
-            'runs in the review UI honour this default too.'
+            'detection. Leave blank to auto-pick the first enabled '
+            'vision-capable endpoint. Per-page re-runs in the review UI '
+            'honour this default too.'
+        ),
+        choices_fn=_llm_endpoint_choices,
+    )),
+    ('PDF_PAPER_NAME_DEFAULT_LLM', _spec(
+        'PDF_PAPER_NAME_DEFAULT_LLM', 'string', group='AI Tools',
+        label='Default LLM for PDF paper name',
+        help=(
+            'LLM endpoint for guessing the paper name from the first page '
+            'when a PDF is chosen in PDF Batch Import. Leave blank to use '
+            'the PDF Batch Import endpoint. The named endpoint must be '
+            'enabled and vision-capable; otherwise the PDF Batch Import '
+            'endpoint is used.'
         ),
         choices_fn=_llm_endpoint_choices,
     )),

@@ -391,6 +391,84 @@ def _is_claude_model(config) -> bool:
     return provider in ('anthropic', 'claude')
 
 
+# Poe's Mistral-Small-3 bot (model id ``mistral-small-3``) answers Chat
+# Completions only. A ``system`` role makes Poe return HTTP 500
+# ``provider_error``; the Responses API returns 400 "Model does not support
+# responses method". Match the id exactly so ``mistral-small-3.1`` is left
+# alone.
+_CHAT_MODELS_WITHOUT_SYSTEM_ROLE = frozenset({'mistral-small-3'})
+
+
+def _rejects_system_role(config) -> bool:
+    """True when a Chat Completions ``system`` role must not be sent."""
+    model = (getattr(config, 'model_name', '') or '').strip().lower()
+    return model in _CHAT_MODELS_WITHOUT_SYSTEM_ROLE
+
+
+def _prepend_user_text(content, prefix: str):
+    """Put *prefix* in front of a user ``content`` string or text block."""
+    if isinstance(content, str):
+        body = content.strip()
+        return f'{prefix}\n\n{body}' if body else prefix
+    if isinstance(content, list):
+        blocks = []
+        merged = False
+        for blk in content:
+            if (not merged and isinstance(blk, dict) and blk.get('type') == 'text'):
+                existing = blk.get('text') or ''
+                copied = dict(blk)
+                copied['text'] = (f'{prefix}\n\n{existing}'
+                                  if str(existing).strip() else prefix)
+                blocks.append(copied)
+                merged = True
+            else:
+                blocks.append(blk)
+        if not merged:
+            blocks.insert(0, {'type': 'text', 'text': prefix})
+        return blocks
+    return prefix
+
+
+def _fold_system_into_user(messages):
+    """Move system turns into the first user turn.
+
+    Returns the original list when there is no system turn. Does not mutate
+    the input messages.
+    """
+    if not messages:
+        return messages
+    systems: list[str] = []
+    rest: list = []
+    saw_system = False
+    for msg in messages:
+        if isinstance(msg, dict) and (msg.get('role') or '').strip().lower() == 'system':
+            saw_system = True
+            text = _content_to_plain_text(msg.get('content')).strip()
+            if text:
+                systems.append(text)
+        else:
+            rest.append(msg)
+    if not saw_system:
+        return messages
+    prefix = '\n\n'.join(systems)
+    if not prefix:
+        return rest
+    out = []
+    folded = False
+    for msg in rest:
+        if (not folded and isinstance(msg, dict)
+                and (msg.get('role') or '').strip().lower() == 'user'):
+            copied = dict(msg)
+            copied['content'] = _prepend_user_text(msg.get('content'), prefix)
+            out.append(copied)
+            folded = True
+        else:
+            out.append(msg)
+    if not folded:
+        out.insert(0, {'role': 'user', 'content': prefix})
+    return out
+
+
 def _apply_reasoning_params(payload: dict, config, reasoning: dict | None) -> None:
     """Attach provider-appropriate reasoning / thinking controls to *payload*.
 
@@ -567,6 +645,8 @@ def _resolve_service_tier(config):
 def _build_chat_payload(config, messages, max_tokens=None, temperature=None,
                         *, stream: bool = False):
     """Build a Chat Completions request body."""
+    if _rejects_system_role(config):
+        messages = _fold_system_into_user(messages)
     payload = {
         'model': config.model_name,
         'messages': messages,
