@@ -13,7 +13,7 @@
     {% if OQB_UI_LANG == 'zh' %}
     <script src="{{ url_for('i18n.catalogue_js', lang='zh') }}?v={{ OQB_I18N_VERSION }}"></script>
     {% endif %}
-    <script src="{{ url_for('static', filename='js/i18n.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/i18n.js') }}?v=3"></script>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="{{ url_for('static', filename='js/csrf.js') }}?v=1"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">

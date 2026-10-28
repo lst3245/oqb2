@@ -4,9 +4,10 @@ Saved-list number in front of teacher-facing topic / subtopic names.
 ``Subject.topic_number_prefix`` / ``subtopic_number_prefix`` turn on
 ``01 Basic Algebra`` / ``1.1 Law of Indices`` wherever the UI shows a topic
 name: dashboard filter and question tags, Reorder blocks, the tag editor,
-Batch Edit. Display only: never match, post or store these labels (use ids /
-``name_en``). Generated documents ignore this and follow the Generate page
-numbering option.
+Batch Edit. A name that already starts with that number (``21 Astronomy``)
+is not prefixed again. Display only: never match, post or store these labels
+(use ids / ``name_en``). Generated documents ignore this and follow the
+Generate page numbering option.
 """
 from flask import g, has_app_context
 
@@ -15,11 +16,37 @@ from app.i18n import display_name
 _CACHE_ATTR = '_oqb_tax_numbers'
 
 
+def _number_key(token):
+    """``(21,)`` / ``(21, 1)`` for a number token, ignoring padding and a
+    trailing dot. ``None`` when the token is not a number (``21st``)."""
+    token = str(token).rstrip('.')
+    if not token:
+        return None
+    parts = token.split('.')
+    if any(not part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
 def prefixed(number, name):
-    """``"01 Basic Algebra"``, or ``name`` when there is no number. Pure."""
+    """``"01 Basic Algebra"``, or ``name`` when there is no number.
+
+    A name whose first token is already that number is left unchanged, so a
+    topic stored as ``21 Astronomy`` renders as ``21 Astronomy`` and not
+    ``21 21 Astronomy``. ``01`` and ``1`` are the same token; ``21st`` is not.
+    Pure. ``OQB.taxLabel`` in ``static/js/i18n.js`` mirrors this.
+    """
     if name is None:
         return None
-    return f'{number} {name}' if number else name
+    if not number:
+        return name
+    number = str(number)
+    first = name.split(None, 1)
+    token = first[0] if first else ''
+    key = _number_key(token)
+    if token == number or (key is not None and key == _number_key(number)):
+        return name
+    return f'{number} {name}'
 
 
 def subject_numbers(subject_id):
@@ -63,7 +90,11 @@ def number_of(node):
 
 
 def numbered_name(node, mode=None):
-    """``display_name`` with the subject's number prefix (if any)."""
+    """``display_name`` with the subject's number prefix (if any).
+
+    Skips the prefix when the displayed name already starts with that number
+    (see ``prefixed``). Does not rename the stored ``name``.
+    """
     if node is None:
         return None
     return prefixed(number_of(node), display_name(node, mode))

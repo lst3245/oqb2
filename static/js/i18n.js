@@ -14,7 +14,9 @@
  *   name_en / name_zh (falls back to node.name), in the taxonomy mode.
  * OQB.taxLabel(node) -> node.name with the subject's number prefix
  *   (node.number, "01 Basic Algebra") from /dashboard/api/topics|subtopics.
- *   Display only; post ids or name_en, never the label.
+ *   A name that already starts with that number ("21 Astronomy") is not
+ *   prefixed again. Mirrors app/tax_numbers.prefixed. Display only; post
+ *   ids or name_en, never the label.
  */
 (function () {
     var OQB = window.OQB = window.OQB || {};
@@ -76,10 +78,29 @@
         return OQB.bilingual(node.name_en, node.name_zh);
     };
 
+    // Same rule as app/tax_numbers._number_key: "01" and "1" match, "21st" does not.
+    function taxNumberKey(token) {
+        token = String(token == null ? '' : token).replace(/\.+$/, '');
+        if (!token) return null;
+        var parts = token.split('.');
+        var nums = [];
+        for (var i = 0; i < parts.length; i++) {
+            if (!/^\d+$/.test(parts[i])) return null;
+            nums.push(String(parseInt(parts[i], 10)));
+        }
+        return nums.join('.');
+    }
+
     OQB.taxLabel = function (node) {
         if (!node) return '';
         var name = node.name || '';
-        return node.number ? node.number + ' ' + name : name;
+        var number = node.number;
+        if (!number) return name;
+        var first = name.split(/\s+/)[0] || '';
+        if (first === String(number) || (taxNumberKey(first) && taxNumberKey(first) === taxNumberKey(number))) {
+            return name;
+        }
+        return number + ' ' + name;
     };
 
     // Lower-cased "English 中文" haystack for client-side search boxes.

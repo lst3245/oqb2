@@ -40,8 +40,9 @@
        - Split question: .hierarchy-group = .stem-header-card (head + shared
          background row) then .hierarchy-children rows: intermediate stems
          (e.g. Q1c) and parts. Backgrounds are never repeated on part rows.
-         `depth` indents the rail only, never the paper: the crops already
-         carry the printed indentation.
+         A part with no QUE of its own shows a muted note, not the yellow
+         "No preview available" alert. `depth` indents the rail only, never
+         the paper: the crops already carry the printed indentation.
     #}
 
     {% macro tag_badges(question) %}
@@ -234,7 +235,13 @@
                 {{ que_preview(bg) }}
                 <div class="qsheet-cut"></div>
                 {% endif %}
+                {% if question.has_que or question.preview_mode or not bg %}
                 {{ que_preview(question) }}
+                {% else %}
+                {# Stem image is already above. Same calm note as a part row;
+                   the yellow alert is only for a card with nothing to show. #}
+                <span class="text-muted small fst-italic">{{ t('No question image for this part.') }}</span>
+                {% endif %}
                 {% if bg or question.preview_mode in ('image', 'html', 'thumbnail') %}{{ zoom_button(question.qid) }}{% endif %}
             </div>
             <div class="qsheet-rail">
@@ -246,15 +253,21 @@
     {% endmacro %}
 
     {# One part inside its question sheet: its own QUE only (the background is
-       the stem row above). Label from the breadcrumb: "(a)" for a lettered
-       part, "Q16" under a shared data block (Q16-17) — never "(None)". #}
+       the stem row above and is not repeated here). Label from the breadcrumb:
+       "(a)" for a lettered part, "Q16" under a shared data block (Q16-17) —
+       never "(None)". No own QUE is normal (stem-only crops): a muted note,
+       not que_preview's yellow "No preview available" alert. #}
     {% macro part_row(question) %}
     {% set label = (question.breadcrumb|last).label if question.breadcrumb else (('(' ~ question.part ~ ')') if question.part else '') %}
     <div class="question-card qsheet-row hierarchy-leaf" data-question-id="{{ question.id }}"
          style="--depth: {{ question.depth or 1 }};" onclick="toggleQuestionSelection(event, this)">
-        <div class="qsheet-paper">
+        <div class="qsheet-paper{% if not question.has_que and not question.preview_mode %} qsheet-paper--empty{% endif %}">
+            {% if question.has_que or question.preview_mode %}
             {{ que_preview(question) }}
             {% if question.preview_mode in ('image', 'html', 'thumbnail') %}{{ zoom_button(question.qid) }}{% endif %}
+            {% else %}
+            <span class="text-muted small fst-italic">{{ t('No question image for this part.') }}</span>
+            {% endif %}
         </div>
         <div class="qsheet-rail">
             <div class="qsheet-rail-head">
