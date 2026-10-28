@@ -1908,6 +1908,7 @@
   "Shared · {name}": "共用 · {name}",
   "No shared text for {label}; the sub-parts stand alone.": "「{label}」沒有共用文字；子分題獨立存在。",
   "No shared text for this part; the sub-parts stand alone.": "此分題沒有共用文字；子分題獨立存在。",
+  "No question image for this part.": "此分題沒有題目圖片。",
   "Select / deselect all sub-parts of {label}": "選取或取消選取「{label}」的所有子分題",
   "Explain {label} with all its sub-parts": "講解「{label}」及其所有子分題",
   "Printed between parts · used by the {n} parts below it": "印在分題之間 · 供下面 {n} 個分題使用",
