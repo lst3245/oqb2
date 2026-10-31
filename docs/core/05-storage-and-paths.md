@@ -18,6 +18,8 @@
   User\                          USER_PATH
     <username>\                  personal home (owner has full CRUD in the browser)
       generated\                 generated documents (+ lazy PDF siblings); READ-ONLY in the browser
+  Requests\                      REQUESTS_PATH - issue-report attachments (permanent data, NOT a cache)
+    <request_id>\                <message_id>_<random><.ext>; names in support_request_attachments
 ```
 
 On the current host: `SOURCE_PATH=D:\oqb_data\Source`, `STORAGE_PATH=D:\oqb_data\Storage` (from `.env`; comments in older code mention `Q:\Source` / `Q:\Storage` — treat those as examples, not facts).
@@ -29,6 +31,7 @@ On the current host: `SOURCE_PATH=D:\oqb_data\Source`, `STORAGE_PATH=D:\oqb_data
 | `SOURCE_PATH` | `<repo>/Source` | question library |
 | `STORAGE_PATH` | sibling `Storage` of `SOURCE_PATH` | parent of Shared/System/User |
 | `SHARED_PATH` / `SYSTEM_PATH` / `USER_PATH` | `<STORAGE_PATH>/Shared|System|User` | per-root override |
+| `REQUESTS_PATH` | `<STORAGE_PATH>/Requests` | Requests attachments ([../modules/requests.md](../modules/requests.md)) |
 | `DOC_THUMBNAIL_PATH` | `<SYSTEM_PATH>/doc_thumbnails` | DOC thumbnail cache |
 | `PDF_SOURCE_PATH` | `SHARED_PATH` | legacy server-side PDF library for import/toolbox pickers |
 | `OUTPUT_PATH` | `<repo>/output` | legacy fallback for pre-migration generated files |
@@ -45,6 +48,7 @@ Storage must be on the same drive as `SOURCE_PATH`; the browser's drive gate enf
 | `safe_username(user)` | filesystem-safe folder name; verbatim for names passing `validate_username`, sanitised (never empty) for legacy names |
 | `user_home(user)`, `user_generated_dir(user)`, `ensure_user_generated_dir(user)` | per-user paths |
 | `shared_subject_dir(subject_id)`, `shared_archive_dir()` | Shared roots |
+| `requests_path()`, `request_dir(request_id)` | Requests root; one request's folder (`safe_join`, not auto-created; `None` for a bad id) |
 | `ensure_storage_tree()` | called at startup; best-effort `makedirs`, swallows `OSError` |
 
 ## Rules
@@ -54,7 +58,7 @@ Storage must be on the same drive as `SOURCE_PATH`; the browser's drive gate enf
 - `User/<name>/generated/` is managed by My Files (`generated_files` rows). The File Browser treats it as read-only and refuses to move files into or out of it so rows never orphan.
 - Renaming a user moves `User/<old>` → `User/<new>` (Admin → Users). Usernames are validated to be safe folder names ([02-auth-and-permissions.md](02-auth-and-permissions.md)).
 - Extra browser roots for super admins are stored as a JSON list in `system_settings.FILE_BROWSER_EXTRA_ROOTS` (not a REGISTRY scalar) and appear only in admin scope.
-- New app-written artefacts belong under `System/` (caches, staging) or the owning user's home — never in the repo, never in `SOURCE_PATH` unless they are question assets created through the asset routes.
+- New app-written artefacts belong under `System/` (caches, staging) or the owning user's home — never in the repo, never in `SOURCE_PATH` unless they are question assets created through the asset routes. Request attachments are the one exception: `Requests/` is its own permanent root, written only by `support_requests_service.save_attachments` and served only by `/requests/attachment/<id>` after the thread's visibility check. It is not in the File Browser and must not be cleared with `System/`.
 - Uploads: every path component passes through `secure_filename`; folder uploads preserve structure via `paths[]` but stay inside the target root.
 
 ## Migration

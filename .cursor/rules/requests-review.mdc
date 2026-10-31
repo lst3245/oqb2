@@ -1,0 +1,30 @@
+---
+description: Requests (issue threads, attachments, statuses, approval gate) and Review (batches of field diffs applied one question at a time) - visibility, state rules, restore points, file serving
+globs: app/support_requests.py,app/support_requests_service.py,app/review.py,app/review_service.py,app/question_edit_service.py,templates/requests_*.html,templates/partials/request_composer*.html,templates/admin_review*.html,tests/test_support_requests.py,tests/test_review_service.py,tests/test_question_edit_service.py
+alwaysApply: false
+---
+
+# Requests and Review (bootloader — spec in `docs/modules/requests.md`, `docs/modules/review.md`, ADR-022)
+
+Two linked features. Module names are `support_requests*` (not `requests`, which would shadow the HTTP library).
+
+## Requests invariants
+- Thread subjects = `subject_id` + linked questions' `subject_id` copies. **Visible:** reporter, admins of any of them, super admins (general thread: reporter + super). **Manage:** admin of any. **Approve:** admin of **every** one (super for general). Use `access_for` / `visible_filter`; never hand-roll a check in a route.
+- Status rules live in the pure `allowed_statuses` / `status_after_reply` / `needs_agent`. The agent may never set `approved`; only `decide_approval` does. Reject needs a note → status `open`.
+- `last_actor_kind` drives the agent queue: a person's message / status change / decision sets it; `add_system_note` never does.
+- Attachments: written only by `save_attachments` under `storage.request_dir(id)` via `safe_join`, served only by `/requests/attachment/<id>` after the visibility check; images inline, everything else `application/octet-stream` download, `nosniff`. Never serve the folder statically.
+- Message bodies are plain text rendered by `render_body` (escape first). Do not add markup without escaping.
+- Subject delete: `detach_subject` (threads become general); user erase nulls reporter / author / closed_by.
+- `REQUESTS_ENABLED` off → `/requests/*` 404 and Report buttons hidden (`requests_can_report()`, `window.OQB_REPORT_URL`).
+
+## Review invariants
+- Items are `[{field, old, new}]` over `question_edit_service.FIELDS` (taxonomy as ids). Apply only through `review_service.apply_item` → `qes.apply_fields(action='review-apply')`; Apply all takes one point and passes `capture=False`.
+- Stale (`old` ≠ current) → 409 until `confirm_stale`; Apply all leaves stale items pending.
+- `log_corrections` runs **after** the commit and never raises.
+- Every batch / item route: `@admin_required` + `authz.require_subject(batch.subject_id, 'admin')`.
+
+## Gotchas
+- `question_edit_service` is shared by the Edit modal (`update_question` → `write_values`), Review and the agent (`apply_fields`): a rule change affects all three; run `tests.test_question_edit_service`, `tests.test_review_service`.
+- Stems cannot hold tags, level, type or marks (`FIELDS[f]['leaf']`; `normalize_changes(stem=True)` refuses).
+- Every UI string through `t()` / `OQB.t()` with a `zh_Hant.json` key; `STATUS_LABELS`, `CATEGORY_LABELS` and `FIELDS` labels are covered by `test_dynamic_keys_are_translated`.
+- Composer posts `FormData` by `fetch` (CSRF header from `csrf.js`); plain forms need `{{ csrf_field() }}`. `showToast` is not global outside the Edit modal partial.

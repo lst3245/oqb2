@@ -17,8 +17,9 @@
 9. [Saved Search Profiles](#9-saved-search-profiles)
 10. [Saved Generation Presets](#10-saved-generation-presets)
 11. [Question Sets](#11-question-sets)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Quick Reference](#13-quick-reference)
+12. [Requests — Reporting a Problem](#12-requests--reporting-a-problem)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Quick Reference](#14-quick-reference)
 
 ---
 
@@ -67,6 +68,7 @@ The top navigation bar has:
 - **Profiles** — saved search presets
 - **File Browser** — your personal **My Files** home plus the **Shared** folder for each subject you can access (subject admins can edit their Shared folder; other members have read-only access; pure read-only viewers don't see it). It reopens in the folder you last used, on any computer you sign in from.
 - **Toolbox** — utilities such as Markup
+- **Requests** — report a problem and follow your reports ([section 12](#12-requests--reporting-a-problem)); a red number shows new replies
 - **Admin** — visible to admins only
 - **Language** (globe icon, also on the login page) — three separate choices, remembered on this computer / browser only:
   - **Interface language**: English or 繁體中文 for every page's menus, buttons, labels and messages. Progress logs of long jobs (import, sync, AI batch runs), AI replies and the text of your questions stay as they are.
@@ -608,7 +610,39 @@ Sets are tied to a single subject. The modal only shows sets for the subject cur
 
 ---
 
-## 12. Troubleshooting
+## 12. Requests — Reporting a Problem
+
+Use **Requests** when something is wrong: a wrong tag or answer, a typo in a question, a missing image, a page that does not work, or an idea. A request is a conversation, like a chat. The subject's admins and the AI agent read it, answer, and may ask you for more information.
+
+### Reporting
+
+- **About questions:** select them on the dashboard and click **Report** in the header bar. You can also click the flag in the Enlarge view of one question. Admins have a flag in the Edit window and **Report issue** in Question Management.
+- **About anything else:** click **Report** with nothing selected, or **Requests → Report a problem** in the top bar.
+
+The form opens in a new tab with the questions already linked. Give it a short title, pick the kind (**Problem with questions**, **General**, **App bug** or **Feature request**) and describe the problem. To add a screenshot, paste it into the text box (Ctrl+V). You can also drag files onto the box or click **Attach files**. By default you can attach up to 10 files of 20 MB each per message; your administrator may change these limits.
+
+Your administrator decides which role may report; by default every **User** can. If you do not see the Report buttons, ask them.
+
+### Following up
+
+**Requests** in the top bar lists your requests. A red number shows how many have new messages. Open a request to read the replies and answer. Its status tells you where it stands:
+
+| Status | Meaning |
+|---|---|
+| **Open** / **In progress** | Waiting for the agent or an admin / being worked on |
+| **Needs more info** | Someone asked you a question. Your reply sends it back to them |
+| **Awaiting approval** | The agent proposed a change that a subject admin must approve first |
+| **Approved** | An admin approved; the agent will make the change on its next run |
+| **Resolved** | Fixed. If the problem is still there, reply; that reopens it |
+| **Closed** | Finished. Nothing more can be added |
+
+You can close your own request at any time: in the **Status** card pick **Closed** and click **Change status**.
+
+**Who sees a request:** you, the admins of the subjects of the linked questions, super admins and the AI agent. A request with no question and no subject is seen only by you, super admins and the agent. The agent may take a few hours to answer, because it checks OQB on a schedule.
+
+---
+
+## 13. Troubleshooting
 
 | Problem | Likely Cause | Fix |
 |---|---|---|
@@ -621,7 +655,7 @@ Sets are tied to a single subject. The modal only shows sets for the subject cur
 
 ---
 
-## 13. Quick Reference
+## 14. Quick Reference
 
 ### Keyboard Shortcuts (Viewer)
 | Key | Action |

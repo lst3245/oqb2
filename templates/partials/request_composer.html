@@ -1,0 +1,17 @@
+{# Requests message box: text + attachments (button, paste, drag and drop).
+   Needs `composer_id`, `limits` ({max_files, max_mb}) and optional
+   `composer_rows` / `composer_placeholder`. Wire it with
+   oqbRequestComposer(root) from partials/request_composer_js.html. #}
+<div class="rq-composer" id="{{ composer_id }}" data-max-files="{{ limits.max_files }}" data-max-mb="{{ limits.max_mb }}">
+    <textarea class="form-control rq-body" rows="{{ composer_rows or 5 }}" maxlength="20000"
+              placeholder="{{ composer_placeholder or t('Describe the problem. You can paste screenshots here.') }}"></textarea>
+    <div class="rq-files d-flex flex-wrap gap-2 mt-2"></div>
+    <div class="d-flex align-items-center flex-wrap gap-2 mt-2">
+        <label class="btn btn-sm btn-outline-secondary mb-0">
+            <i class="bi bi-paperclip"></i> {{ t('Attach files') }}
+            <input type="file" class="d-none rq-file-input" multiple>
+        </label>
+        <small class="text-muted">{{ t('Paste or drop pictures and files here. Up to {count} files, {mb} MB each.', count=limits.max_files, mb=limits.max_mb) }}</small>
+    </div>
+    <div class="rq-error text-danger small mt-2"></div>
+</div>

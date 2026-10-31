@@ -25,7 +25,7 @@ Schema detail: [../core/03-data-model-and-migrations.md](../core/03-data-model-a
 | Table / model | Columns | Notes |
 |---|---|---|
 | `subject_prompt_notes` (`SubjectPromptNote`) | `id`, `subject_id` FK `subjects.id` CASCADE, `feature` (`'tag'`), `mode` (`append` / `replace`), `content` TEXT NULL, `examples_limit` INT (0 = off, max 30), `updated_at`, `updated_by` FK `users.id` | unique `(subject_id, feature)`. `feature` is a feature key, not a `PROMPTS_REGISTRY` key. Blank content + `examples_limit 0` deletes the row |
-| `tag_corrections` (`TagCorrection`) | `id`, `question_id` FK `questions.id` CASCADE, `subject_id` idx, `field` (a `TAG_FIELDS` key), `suggested` VARCHAR(500), `saved` VARCHAR(500), `agreed` bool, `reason` VARCHAR(400), `model` VARCHAR(200), `user_id` FK `users.id`, `created_at` | Display **names**, never IDs (list fields comma-joined, sorted). One row per requested field where either side has a value |
+| `tag_corrections` (`TagCorrection`) | `id`, `question_id` FK `questions.id` CASCADE, `subject_id` idx, `field` (a `TAG_FIELDS` key), `suggested` VARCHAR(500), `saved` VARCHAR(500), `agreed` bool, `reason` VARCHAR(400), `model` VARCHAR(200), `user_id` FK `users.id`, `created_at` | Display **names**, never IDs (list fields comma-joined, sorted). One row per requested field where either side has a value. Written by the edit modal (Save Tags after Suggest) and by Review decisions (`review_service.log_corrections`, model `agent:<name>`, else `review-<source>`, [review.md](review.md)) |
 | `topics`, `subtopics`, `chapters`, `subchapters` | `+ description VARCHAR(300) NULL` | Teachers' one-line hint; rendered as `Name — hint` in the taxonomy block. Never shown to students |
 
 ## Routes

@@ -14,15 +14,17 @@ alwaysApply: true
 | Question library | `SOURCE_PATH` (`D:\oqb_data\Source`) | none |
 | Users' generated docs | `STORAGE_PATH\User\<name>\generated` + `generated_files` rows | none |
 | Restore points | `subject_restore_points` rows — the only per-subject undo history (binlog is off) | none |
+| Request attachments | `STORAGE_PATH\Requests\<id>\` + `support_request_attachments` rows — teachers' screenshots and the agent's backups of replaced files | none (permanent, never "clean up") |
 | Caches / staging | `STORAGE_PATH\System\*` | safe to clear when idle |
-| Secrets | `.env` (DB password, `LLM_API_KEY`, `SECRET_KEY`, `LLM_KEY_SECRET`) | `.env.example` |
+| Secrets | `.env` (DB password, `LLM_API_KEY`, `SECRET_KEY`, `LLM_KEY_SECRET`, `AGENT_API_TOKEN` — super-admin access to `/mcp`) | `.env.example` |
 
 ## NEVER
 
 - Never run `python init_db.py`, `migrate_versions.py`, `migrate_starring.py`, `migrate_md_format.py`, `import_dse_p2.py`, `tag_topics.py`, or `debug_env.py`. They write to the live DB / library or leak secrets.
 - Never run `python cli.py sync --no-dry-run`, `cli.py migrate-storage --no-dry-run` or `cli.py set-block-end --no-dry-run` unless the user asked for that exact command in this session.
 - Never kill, restart, or start a second dev server; never bind `:5000` yourself. Do not `taskkill` PIDs from the terminal file to "reset" anything.
-- Never print, `cat`, copy, or commit `.env`; never echo `DB_PASSWORD` / `LLM_API_KEY`; never hardcode a credential (one leftover already exists in `debug_env.py` — do not repeat it).
+- Never print, `cat`, copy, or commit `.env`; never echo `DB_PASSWORD` / `LLM_API_KEY` / `AGENT_API_TOKEN`; never hardcode a credential (one leftover already exists in `debug_env.py` — do not repeat it).
+- Never call `/mcp` write tools yourself to "test" them: the token is a super admin on the live library. Do not widen `AGENT_MCP_ALLOWED_IPS` or turn `AGENT_MCP_ENABLED` on unless the user asks.
 - Never rotate `SECRET_KEY` or `LLM_KEY_SECRET` — it invalidates every Fernet-encrypted LLM endpoint key in `llm_configs`.
 - Never issue raw `ALTER TABLE` / `DELETE` / `UPDATE` against the DB from a shell or ad-hoc script. Schema changes go through the boot-patch pattern in `app/__init__.py` and are reviewed by the user before the server reloads them.
 - Never rename or move files under `SOURCE_PATH` by hand; use the app's rename/asset routes (they keep `question_assets.file_path` in sync).

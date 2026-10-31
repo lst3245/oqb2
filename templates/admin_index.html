@@ -66,6 +66,19 @@
                 </div>
             </div>
         </div>
+        <div class="col-md-4">
+            {% set _hub_review = review_pending_count() %}
+            <div class="card h-100{{ ' border-warning' if _hub_review }}">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-ui-checks"></i> {{ t('Review') }}
+                        {% if _hub_review %}<span class="badge rounded-pill bg-warning text-dark">{{ _hub_review }}</span>{% endif %}</h5>
+                    <p class="card-text">{{ t('Check tag and field changes proposed by the AI agent (or pasted as JSON) one question at a time, with the question image beside the change. Apply, reject, or open the Edit modal.') }}</p>
+                    <a href="{{ url_for('review.index') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-right"></i> {{ t('Go to Review') }}
+                    </a>
+                </div>
+            </div>
+        </div>
     </div>
 
     <h6 class="text-muted text-uppercase fw-semibold mb-3 mt-4">

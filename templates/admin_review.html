@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{# Review batch list (/admin/review). Spec: docs/modules/review.md #}
+
+{% block title %}{{ t('Review - Question Bank') }}{% endblock %}
+
+{% block content %}
+{% set status_labels = {'open': t('Open'), 'done': t('Done'), 'archived': t('Archived'), 'all': t('All')} %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-ui-checks"></i> {{ t('Review') }}</h2>
+        <div class="d-flex align-items-center gap-2">
+            <a href="{{ url_for('review.import_page', subject=subject_id or None) }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-upload"></i> {{ t('Import JSON') }}
+            </a>
+            <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> {{ t('Back to Admin') }}
+            </a>
+        </div>
+    </div>
+    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i>
+        {{ t('Proposed tag and field changes, from the AI agent or pasted as JSON. Open a batch to check each question with its image, then apply, reject or edit it. Applying saves a restore point first.') }}
+    </p>
+    <hr>
+
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <div class="btn-group btn-group-sm" role="group">
+            {% for s in ['open', 'done', 'archived', 'all'] %}
+            <a class="btn {{ 'btn-secondary' if status == s else 'btn-outline-secondary' }}"
+               href="{{ url_for('review.index', status=s, subject=subject_id or None) }}">{{ status_labels[s] }}</a>
+            {% endfor %}
+        </div>
+        <input type="hidden" name="status" value="{{ status }}">
+        <select name="subject" class="form-select form-select-sm" style="max-width: 260px" onchange="this.form.submit()">
+            <option value="">{{ t('All my subjects') }}</option>
+            {% for s in subjects %}
+            <option value="{{ s.id }}" {{ 'selected' if s.id == subject_id }}>{{ s.id }} · {{ tax_name(s) }}</option>
+            {% endfor %}
+        </select>
+    </form>
+
+    {% if not batches %}
+    <p class="text-muted">{{ t('No review batches here.') }}</p>
+    {% else %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>{{ t('Title') }}</th>
+                    <th>{{ t('Subject') }}</th>
+                    <th>{{ t('From') }}</th>
+                    <th style="min-width: 180px">{{ t('Progress') }}</th>
+                    <th>{{ t('Status') }}</th>
+                    <th>{{ t('Updated') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in batches %}
+                {% set decided = b.counts.applied + b.counts.done + b.counts.rejected %}
+                <tr>
+                    <td class="text-muted">{{ b.id }}</td>
+                    <td>
+                        <a href="{{ url_for('review.batch_page', batch_id=b.id) }}" class="fw-semibold">{{ b.title }}</a>
+                        {% if b.linked_request_id %}
+                        <a href="{{ url_for('support_requests.thread', request_id=b.linked_request_id) }}" class="small ms-1 text-decoration-none">
+                            <i class="bi bi-chat-left-text"></i> {{ t('Request #{id}', id=b.linked_request_id) }}</a>
+                        {% endif %}
+                    </td>
+                    <td>{{ b.subject }}</td>
+                    <td class="small">
+                        {% if b.source == 'agent' %}<i class="bi bi-robot"></i> {{ b.agent_name or t('AI agent') }}
+                        {% else %}<i class="bi bi-upload"></i> {{ t('Import') }}{% endif %}
+                    </td>
+                    <td>
+                        <div class="progress" style="height: 8px" title="{{ t('{done} of {total} decided', done=decided, total=b.total) }}">
+                            <div class="progress-bar bg-success" style="width: {{ (100 * b.counts.applied / b.total) if b.total else 0 }}%"></div>
+                            <div class="progress-bar bg-info" style="width: {{ (100 * b.counts.done / b.total) if b.total else 0 }}%"></div>
+                            <div class="progress-bar bg-secondary" style="width: {{ (100 * b.counts.rejected / b.total) if b.total else 0 }}%"></div>
+                        </div>
+                        <div class="small text-muted">
+                            {{ t('{pending} pending · {applied} applied · {rejected} rejected', pending=b.counts.pending + b.counts.skipped, applied=b.counts.applied + b.counts.done, rejected=b.counts.rejected) }}
+                        </div>
+                    </td>
+                    <td><span class="badge {{ 'bg-primary' if b.status == 'open' else ('bg-success' if b.status == 'done' else 'bg-secondary') }}">{{ status_labels.get(b.status, b.status) }}</span></td>
+                    <td class="small text-nowrap" data-utc="{{ b.updated_at }}"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('[data-utc]').forEach(el => { el.textContent = window.oqbFormatLocalTime(el.dataset.utc); });
+</script>
+{% endblock %}

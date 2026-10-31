@@ -64,6 +64,8 @@
         'Chapters CSV import': t('Chapters CSV import'),
         'Auto Tag run': t('Auto Tag run'),
         'PDF import (marks)': t('PDF import (marks)'),
+        'Review apply': t('Review apply'),
+        'AI agent edit': t('AI agent edit'),
         'Before restore': t('Before restore'),
     } %}
     <div class="table-responsive">
@@ -237,6 +239,8 @@ function rpAction(label) {
     if (label === 'Chapters CSV import') return OQB.t('Chapters CSV import');
     if (label === 'Auto Tag run') return OQB.t('Auto Tag run');
     if (label === 'PDF import (marks)') return OQB.t('PDF import (marks)');
+    if (label === 'Review apply') return OQB.t('Review apply');
+    if (label === 'AI agent edit') return OQB.t('AI agent edit');
     if (label === 'Before restore') return OQB.t('Before restore');
     return label || '';
 }

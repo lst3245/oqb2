@@ -9,7 +9,7 @@ alwaysApply: false
 Spec: `docs/core/05-storage-and-paths.md` (tree, config keys, `app/storage.py`) and `docs/modules/file-browser.md` (API, registry, UI). Decision: ADR-005.
 
 ## Invariants
-- Two roots: `SOURCE_PATH` (question library, read-mostly) and `STORAGE_PATH` = `Shared/<SUBJECT>` (admin rw / user ro / viewer hidden, `_archive` super-admin) + `System/` (caches, staging) + `User/<username>/` (`generated/` is read-only in the browser; owned by My Files).
+- Two roots: `SOURCE_PATH` (question library, read-mostly) and `STORAGE_PATH` = `Shared/<SUBJECT>` (admin rw / user ro / viewer hidden, `_archive` super-admin) + `System/` (caches, staging) + `User/<username>/` (`generated/` is read-only in the browser; owned by My Files) + `Requests/<request_id>/` (request attachments, permanent; `REQUESTS_PATH`, `storage.requests_path()` / `request_dir(id)`; written only by `support_requests_service.save_attachments`, served only by `/requests/attachment/<id>`).
 - **Every join goes through `storage.safe_join(base, *rel)`**; `None` = outside the root = 403/404. Never `startswith`. Storage must be on the same drive as Source (drive gate).
 - Paths come from `storage.source_path()/shared_path()/system_path()/user_path()/...` (which read `current_app.config`), never `os.getenv`.
 - Username = folder name: validated by `utils.validate_username` (`^[A-Za-z0-9._-]{1,80}$`, no leading/trailing dot, reserved names); renaming a user moves `User/<old>` → `User/<new>`. `storage.safe_username` sanitises legacy names.

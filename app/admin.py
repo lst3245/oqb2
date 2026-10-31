@@ -26,6 +26,8 @@ from app import md_render
 from app import web_security
 from app import storage
 from app import subject_snapshot
+from app import question_edit_service
+from app import library_ops_service as library_ops
 from app import marks_spacing
 from app import user_erase
 from app import user_groups
@@ -92,6 +94,13 @@ def _taxonomy_name_updates():
     if not updates:
         return None, _t('Name is required')
     return updates, None
+
+
+def _form_hidden():
+    """The edit forms' optional ``hidden`` flag: True / False, or None when absent."""
+    if 'hidden' not in request.form:
+        return None
+    return request.form.get('hidden') == '1'
 
 
 def _taxonomy_json(row, **extra):
@@ -260,6 +269,12 @@ def delete_subject(subject_id):
 
         # Restore points (no FK — keyed by subject id only).
         subject_snapshot.delete_for_subject(subject.id)
+
+        # Review batches (no FK); the subject has no questions left to review.
+        # Its requests stay, as general ones (reporter + super admins).
+        from app import review_service, support_requests_service
+        review_service.delete_for_subject(subject.id)
+        support_requests_service.detach_subject(subject.id)
 
         # Topics/subtopics/chapters/subchapters cascade via the Subject relationships.
         db.session.delete(subject)
@@ -439,14 +454,11 @@ def add_topic():
     if not subject_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
     _require_subject_admin(subject_id)
-    
-    subject_snapshot.capture(subject_id, 'topic-edit')
-    # Get max sort_order for this subject
-    max_order = db.session.query(db.func.max(Topic.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
-    
-    topic = Topic(subject_id=subject_id, name=name, name_zh=_form_name_zh(),
-                  sort_order=max_order + 1)
-    db.session.add(topic)
+    try:
+        topic, _sid = library_ops.add_taxonomy_node('topic', subject_id, name, name_zh=_form_name_zh())
+    except library_ops.OpError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), e.status
     db.session.commit()
     
     return jsonify(_taxonomy_json(topic, subject_id=topic.subject_id))
@@ -462,11 +474,7 @@ def edit_topic(topic_id):
     if error:
         return jsonify({'error': error}), 400
     
-    subject_snapshot.capture(topic.subject_id, 'topic-edit')
-    for field, value in updates.items():
-        setattr(topic, field, value)
-    if 'hidden' in request.form:
-        topic.hidden = request.form.get('hidden') == '1'
+    library_ops.update_taxonomy_node('topic', topic, updates, hidden=_form_hidden())
     db.session.commit()
     
     return jsonify(_taxonomy_json(topic, hidden=topic.hidden))
@@ -508,13 +516,13 @@ def add_subtopic():
     
     if not topic_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
-    subject_snapshot.capture_many(_require_taxonomy_admin(Topic, [topic_id]), 'topic-edit')
-    # Get max sort_order for this topic
-    max_order = db.session.query(db.func.max(Subtopic.sort_order)).filter_by(topic_id=int(topic_id)).scalar() or 0
-    
-    subtopic = Subtopic(topic_id=int(topic_id), name=name, name_zh=_form_name_zh(),
-                        hidden=hidden, sort_order=max_order + 1)
-    db.session.add(subtopic)
+    _require_taxonomy_admin(Topic, [topic_id])
+    try:
+        subtopic, _sid = library_ops.add_taxonomy_node('subtopic', topic_id, name, name_zh=_form_name_zh(),
+                                                       hidden=hidden)
+    except library_ops.OpError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), e.status
     db.session.commit()
     
     return jsonify(_taxonomy_json(subtopic, topic_id=subtopic.topic_id, hidden=subtopic.hidden))
@@ -530,14 +538,7 @@ def edit_subtopic(subtopic_id):
     if error:
         return jsonify({'error': error}), 400
     
-    subject_snapshot.capture(subtopic.topic.subject_id, 'topic-edit')
-    for field, value in updates.items():
-        setattr(subtopic, field, value)
-    
-    # Handle hidden flag
-    if 'hidden' in request.form:
-        subtopic.hidden = request.form.get('hidden') == '1'
-    
+    library_ops.update_taxonomy_node('subtopic', subtopic, updates, hidden=_form_hidden())
     db.session.commit()
     
     return jsonify(_taxonomy_json(subtopic, hidden=subtopic.hidden))
@@ -650,14 +651,11 @@ def add_chapter():
     if not subject_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
     _require_subject_admin(subject_id)
-
-    subject_snapshot.capture(subject_id, 'chapter-edit')
-    # Get max sort_order for this subject
-    max_order = db.session.query(db.func.max(Chapter.sort_order)).filter_by(subject_id=subject_id).scalar() or 0
-
-    chapter = Chapter(subject_id=subject_id, name=name, name_zh=_form_name_zh(),
-                      sort_order=max_order + 1)
-    db.session.add(chapter)
+    try:
+        chapter, _sid = library_ops.add_taxonomy_node('chapter', subject_id, name, name_zh=_form_name_zh())
+    except library_ops.OpError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), e.status
     db.session.commit()
 
     return jsonify(_taxonomy_json(chapter, subject_id=chapter.subject_id))
@@ -673,11 +671,7 @@ def edit_chapter(chapter_id):
     if error:
         return jsonify({'error': error}), 400
     
-    subject_snapshot.capture(chapter.subject_id, 'chapter-edit')
-    for field, value in updates.items():
-        setattr(chapter, field, value)
-    if 'hidden' in request.form:
-        chapter.hidden = request.form.get('hidden') == '1'
+    library_ops.update_taxonomy_node('chapter', chapter, updates, hidden=_form_hidden())
     db.session.commit()
     
     return jsonify(_taxonomy_json(chapter, hidden=chapter.hidden))
@@ -723,13 +717,13 @@ def add_subchapter():
 
     if not chapter_id or not name:
         return jsonify({'error': _t('Missing required fields')}), 400
-    subject_snapshot.capture_many(_require_taxonomy_admin(Chapter, [chapter_id]), 'chapter-edit')
-    # Get max sort_order for this chapter
-    max_order = db.session.query(db.func.max(Subchapter.sort_order)).filter_by(chapter_id=int(chapter_id)).scalar() or 0
-
-    subchapter = Subchapter(chapter_id=int(chapter_id), name=name, name_zh=_form_name_zh(),
-                            hidden=hidden, sort_order=max_order + 1)
-    db.session.add(subchapter)
+    _require_taxonomy_admin(Chapter, [chapter_id])
+    try:
+        subchapter, _sid = library_ops.add_taxonomy_node('subchapter', chapter_id, name,
+                                                         name_zh=_form_name_zh(), hidden=hidden)
+    except library_ops.OpError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), e.status
     db.session.commit()
 
     return jsonify(_taxonomy_json(subchapter, chapter_id=subchapter.chapter_id,
@@ -746,14 +740,7 @@ def edit_subchapter(subchapter_id):
     if error:
         return jsonify({'error': error}), 400
     
-    subject_snapshot.capture(subchapter.chapter.subject_id, 'chapter-edit')
-    for field, value in updates.items():
-        setattr(subchapter, field, value)
-    
-    # Handle hidden flag
-    if 'hidden' in request.form:
-        subchapter.hidden = request.form.get('hidden') == '1'
-    
+    library_ops.update_taxonomy_node('subchapter', subchapter, updates, hidden=_form_hidden())
     db.session.commit()
     
     return jsonify(_taxonomy_json(subchapter, hidden=subchapter.hidden))
@@ -849,125 +836,55 @@ def update_question(question_id):
         stem_row = is_stem(question)
         # Read before any mutation; kept as a restore point only if tags change.
         tag_state = subject_snapshot.read_state(question.subject)
-        
-        # Update basic fields
-        if not stem_row and 'level' in request.form:
-            level = request.form.get('level')
-            question.level = int(level) if level and level != '' else None
-        
-        if not stem_row and 'q_type' in request.form:
-            q_type = request.form.get('q_type')
-            question.q_type = q_type if q_type and q_type != '' else None
-        
-        if 'section' in request.form:
-            section = request.form.get('section')
-            question.section = section if section and section != '' else None
-        
-        if 'description' in request.form:
-            description = request.form.get('description')
-            question.description = description if description and description.strip() != '' else None
-        
-        if 'answer' in request.form:
-            answer = request.form.get('answer')
-            question.answer = answer if answer and answer.strip() != '' else None
-        
-        if 'comment' in request.form:
-            comment_text = request.form.get('comment')
-            question.comment = comment_text if comment_text and comment_text.strip() != '' else None
-        
-        if 'correct_percentage' in request.form:
-            correct_pct = request.form.get('correct_percentage')
-            if correct_pct and correct_pct.strip() != '':
-                pct_val = int(correct_pct)
-                if 0 <= pct_val <= 100:
-                    question.correct_percentage = pct_val
-                else:
-                    question.correct_percentage = None
-            else:
-                question.correct_percentage = None
-        
-        # Marks live on leaves too; a stem's total is derived.
-        if not stem_row and 'marks' in request.form:
+
+        # Parse the form into question_edit_service field values; the writer
+        # applies the stem / parent rules (shared with Review and /mcp).
+        form = request.form
+        values = {}
+
+        def _blank_none(key):
+            raw = form.get(key)
+            return raw if raw and raw.strip() != '' else None
+
+        def _int_or_none(key):
+            raw = form.get(key)
+            return int(raw) if raw and raw != '' else None
+
+        if not stem_row and 'level' in form:
+            values['level'] = _int_or_none('level')
+        if not stem_row and 'q_type' in form:
+            q_type = form.get('q_type')
+            values['q_type'] = q_type if q_type and q_type != '' else None
+        if 'section' in form:
+            section = form.get('section')
+            values['section'] = section if section and section != '' else None
+        for key in ('description', 'answer', 'comment'):
+            if key in form:
+                values[key] = _blank_none(key)
+        if 'correct_percentage' in form:
+            correct_pct = form.get('correct_percentage')
+            pct_val = int(correct_pct) if correct_pct and correct_pct.strip() != '' else None
+            values['correct_percentage'] = pct_val if pct_val is not None and 0 <= pct_val <= 100 else None
+        if not stem_row and 'marks' in form:
             try:
-                question.marks = parse_marks(request.form.get('marks'))
+                values['marks'] = parse_marks(form.get('marks'))
             except ValueError as e:
                 db.session.rollback()
                 return jsonify({'success': False, 'error': str(e)}), 400
-        
-        # Tags live on leaves. Ignore topic/chapter writes on stems.
         if not stem_row:
-            # Update major topic
-            if 'major_topic_id' in request.form:
-                major_topic_id = request.form.get('major_topic_id')
-                new_major_topic_id = int(major_topic_id) if major_topic_id and major_topic_id != '' else None
-                
-                # If major topic changed, clear major subtopic (it may no longer be valid)
-                if new_major_topic_id != question.major_topic_id:
-                    question.major_subtopic_id = None
-                
-                question.major_topic_id = new_major_topic_id
-            
-            # Update major subtopic
-            if 'major_subtopic_id' in request.form:
-                major_subtopic_id = request.form.get('major_subtopic_id')
-                if major_subtopic_id and major_subtopic_id != '':
-                    subtopic = Subtopic.query.get(int(major_subtopic_id))
-                    # Validate that subtopic belongs to the major topic
-                    if subtopic and question.major_topic_id and subtopic.topic_id == question.major_topic_id:
-                        question.major_subtopic_id = subtopic.id
-                    else:
-                        question.major_subtopic_id = None
-                else:
-                    question.major_subtopic_id = None
-            
-            # Update minor topics
-            minor_topic_ids = request.form.getlist('minor_topic_ids')
-            if minor_topic_ids:
-                question.minor_topics.clear()
-                for tid in minor_topic_ids:
-                    if tid:
-                        topic = Topic.query.get(int(tid))
-                        if topic:
-                            question.minor_topics.append(topic)
-            else:
-                question.minor_topics.clear()
-            
-            # Update subtopics
-            subtopic_ids = request.form.getlist('subtopic_ids')
-            if subtopic_ids:
-                question.subtopics.clear()
-                for sid in subtopic_ids:
-                    if sid:
-                        subtopic = Subtopic.query.get(int(sid))
-                        if subtopic:
-                            question.subtopics.append(subtopic)
-            else:
-                question.subtopics.clear()
-            
-            # Update chapter
-            if 'chapter_id' in request.form:
-                chapter_id = request.form.get('chapter_id')
-                new_chapter_id = int(chapter_id) if chapter_id and chapter_id != '' else None
-                
-                # If chapter changed, clear subchapter (it may no longer be valid)
-                if new_chapter_id != question.chapter_id:
-                    question.subchapter_id = None
-                
-                question.chapter_id = new_chapter_id
-            
-            # Update subchapter
-            if 'subchapter_id' in request.form:
-                subchapter_id = request.form.get('subchapter_id')
-                if subchapter_id and subchapter_id != '':
-                    subchapter = Subchapter.query.get(int(subchapter_id))
-                    # Validate that subchapter belongs to the chapter
-                    if subchapter and question.chapter_id and subchapter.chapter_id == question.chapter_id:
-                        question.subchapter_id = subchapter.id
-                    else:
-                        question.subchapter_id = None
-                else:
-                    question.subchapter_id = None
-        
+            if 'major_topic_id' in form:
+                values['major_topic'] = _int_or_none('major_topic_id')
+            if 'major_subtopic_id' in form:
+                values['major_subtopic'] = _int_or_none('major_subtopic_id')
+            values['minor_topics'] = [int(tid) for tid in form.getlist('minor_topic_ids') if tid]
+            values['subtopics'] = [int(sid) for sid in form.getlist('subtopic_ids') if sid]
+            if 'chapter_id' in form:
+                values['chapter'] = _int_or_none('chapter_id')
+            if 'subchapter_id' in form:
+                values['subchapter'] = _int_or_none('subchapter_id')
+
+        question_edit_service.write_values(question, values, stem_row=stem_row)
+
         if subject_snapshot.question_tags_differ(tag_state, question):
             subject_snapshot.capture_state(tag_state, 'question-tags')
         db.session.commit()
@@ -2636,38 +2553,13 @@ def set_question_parent(question_id):
     if denial:
         return denial
     data = request.get_json(silent=True) or {}
-    parent_id = data.get('parent_id')
-    if parent_id in ('', None):
-        if child.part:
-            return jsonify({
-                'error': _t('Cannot detach a labelled part; rename it to a standalone Qn first.')
-            }), 400
-        child.parent_id = None
-        db.session.commit()
-        return jsonify({'success': True, 'parent_id': None})
     try:
-        parent_id = int(parent_id)
-    except (TypeError, ValueError):
-        return jsonify({'error': _t('Invalid parent_id')}), 400
-    parent = Question.query.get_or_404(parent_id)
-    if parent.subject != child.subject:
-        return jsonify({'error': _t('Parent must be in the same subject')}), 400
-    if parent.id == child.id or parent.id in collect_subtree_ids(child):
-        return jsonify({'error': _t('Cannot set a descendant as parent')}), 400
-    if not token_fits_under(child.qid, parent.qid):
-        return jsonify({'error': _t('Child QID is not under that parent token')}), 400
-    child.parent_id = parent.id
-    db.session.flush()
-    if child.part:
-        # Parts at a level with a shared block sit under the block that owns
-        # them (block ends honoured); a request that disagrees is refused.
-        relink_parent(child)
-        if child.parent_id != parent.id:
-            owner = Question.query.get(child.parent_id)
-            db.session.rollback()
-            return jsonify({'error': _block_owner_conflict(child, parent, owner)}), 409
+        result = library_ops.set_parent(child, data.get('parent_id'))
+    except library_ops.OpError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), e.status
     db.session.commit()
-    return jsonify({'success': True, 'parent_id': child.parent_id})
+    return jsonify({'success': True, 'parent_id': result['parent_id']})
 
 
 def _block_owner_conflict(child, requested, owner) -> str:
@@ -3159,7 +3051,6 @@ def rename_question(question_id):
         return denied
     data = request.get_json()
     new_qid = data.get('new_qid', '').strip()
-    confirm_rename_files = data.get('confirm_rename_files', False)
 
     if not new_qid:
         return jsonify({'error': _t('New QID is required')}), 400
@@ -3167,133 +3058,17 @@ def rename_question(question_id):
     if new_qid == question.qid:
         return jsonify({'success': True, 'message': _t('QID unchanged')})
 
-    # Validate format
-    parsed, err = validate_qid_format(new_qid)
-    if err:
-        return jsonify({'error': err}), 400
-
-    new_subject = parsed['subject']
-
-    # Check subject exists
-    if not Subject.query.get(new_subject):
-        return jsonify({'error': _t('Subject {subject} does not exist', subject=new_subject)}), 400
-
-    # Check subject access (superadmins can access all subjects)
-    if not current_user.is_super_admin:
-        admin_subjects = [s.id for s in get_user_admin_subjects()]
-        if new_subject not in admin_subjects:
-            return jsonify({'error': _t('You do not have admin access to subject {subject}', subject=new_subject)}), 403
-
-    # Check for duplicate
-    existing = Question.query.filter_by(qid=new_qid).first()
-    if existing and existing.id != question_id:
-        return jsonify({'error': _t('A question with QID {qid} already exists', qid=new_qid)}), 409
-
-    old_qid = question.qid
-    old_parsed_qid = parse_qid(old_qid)
-    source_path = current_app.config['SOURCE_PATH']
-
-    subtree_ids = collect_subtree_ids(question)
-    has_descendants = len(subtree_ids) > 1
-    old_token = old_parsed_qid.token if old_parsed_qid else None
-    new_token = parsed['qno_token']
-    if old_token:
-        shape_err = rename_shape_ok(old_token, new_token, has_descendants)
-        if shape_err:
-            return jsonify({'error': shape_err}), 400
-
-    subtree = Question.query.filter(Question.id.in_(subtree_ids)).all()
-    new_parsed_full = parse_qid(new_qid)
-    new_prefix = new_parsed_full.prefix
-    plans = []  # (question, new_qid, ParsedQno)
-    new_qids = []
-    for node in subtree:
-        node_parsed = parse_qid(node.qid)
-        if not node_parsed:
-            return jsonify({'error': _t('Cannot parse existing QID {qid}', qid=node.qid)}), 400
-        try:
-            if node.id == question.id:
-                node_new_token = new_token
-            else:
-                node_new_token = rewrite_descendant_token(
-                    node_parsed.token, old_token, new_token
-                )
-        except HierarchyError as e:
-            return jsonify({'error': str(e)}), 400
-        node_new_qid = f'{new_prefix}_{node_new_token}'
-        plans.append((node, node_new_qid, parse_qno_token(node_new_token)))
-        new_qids.append(node_new_qid)
-
-    if len(set(new_qids)) != len(new_qids):
-        return jsonify({'error': _t('Rename would produce duplicate QIDs in the subtree')}), 409
-
-    collisions = (
-        Question.query
-        .filter(Question.qid.in_(new_qids))
-        .filter(~Question.id.in_(subtree_ids))
-        .all()
-    )
-    if collisions:
-        return jsonify({
-            'error': _t('A question with QID {qid} already exists', qid=collisions[0].qid)
-        }), 409
-
-    # Apply QID + hierarchy columns. parent_id is recomputed after all QIDs
-    # exist so ensure_question can find the new parents.
-    for node, node_new_qid, node_tok in plans:
-        node.qid = node_new_qid
-        node.subject = parsed['subject']
-        node.source = parsed['source']
-        node.year = parsed.get('year')
-        node.paper = parsed.get('paper')
-        node.qno = node_tok.qno
-        node.qno_end = node_tok.qno_end
-        node.part = node_tok.own_part
-        node.part_sort = part_sort_value(node_tok.own_part) if node_tok.own_part else None
-
-    db.session.flush()
-    for node, _nid, _tok in plans:
-        relink_parent(node)
-
-    renamed_files = []
-    errors = []
-
-    if confirm_rename_files:
-        for node, _nid, _tok in plans:
-            for asset in node.assets.all():
-                old_full = os.path.join(source_path, asset.file_path)
-                new_rel = _build_asset_file_path(node, asset)
-                new_full = os.path.join(source_path, new_rel)
-
-                if os.path.exists(old_full):
-                    try:
-                        os.makedirs(os.path.dirname(new_full), exist_ok=True)
-                        shutil.move(old_full, new_full)
-                        renamed_files.append({'old': asset.file_path, 'new': new_rel})
-                        asset.file_path = new_rel
-                    except Exception as e:
-                        errors.append(_t('Error moving {path}: {e}', path=asset.file_path, e=str(e)))
-                else:
-                    asset.file_path = new_rel
-
+    allowed = None if current_user.is_super_admin else [s.id for s in get_user_admin_subjects()]
+    try:
+        result = library_ops.rename_question(
+            question, new_qid, rename_files=bool(data.get('confirm_rename_files', False)),
+            allowed_subjects=allowed)
+    except library_ops.OpError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), e.status
     db.session.commit()
 
-    n_extra = len(plans) - 1
-    if n_extra:
-        msg = _t('Question renamed from {old_qid} to {new_qid} ({n_extra} descendant QID(s) updated)',
-                 old_qid=old_qid, new_qid=new_qid, n_extra=n_extra)
-    else:
-        msg = _t('Question renamed from {old_qid} to {new_qid}', old_qid=old_qid, new_qid=new_qid)
-
-    return jsonify({
-        'success': True,
-        'old_qid': old_qid,
-        'new_qid': new_qid,
-        'renamed_files': renamed_files,
-        'errors': errors,
-        'descendant_count': n_extra,
-        'message': msg
-    })
+    return jsonify(dict({'success': True}, **result))
 
 
 @admin_bp.route('/questions/<int:question_id>/assets/upload', methods=['POST'])
@@ -3309,144 +3084,15 @@ def upload_question_asset(question_id):
 
     version = request.form.get('version') or request.form.get('language', 'EN')
     asset_type = request.form.get('asset_type', 'QUE')
-    
-    if version not in VERSIONS:
-        return jsonify({'error': _t('Invalid version')}), 400
-    if asset_type == 'WHOLE':
-        if question.parent_id:
-            return jsonify({'error': _t('A whole-question copy can only be stored on the root question, not on a part.')}), 400
-    elif asset_type not in ('QUE', 'ANS', 'SOL'):
-        return jsonify({'error': _t('Invalid asset type')}), 400
-
-    files = request.files.getlist('files')
-    if not files:
-        return jsonify({'error': _t('No files provided')}), 400
-
-    source_path = current_app.config['SOURCE_PATH']
-    md_max = current_app.config.get('MD_MAX_SIZE_BYTES', 5 * 1024 * 1024)
-
-    # Determine next image part number — only IMG assets are multi-part.
-    # MD and DOC are always part_number=1 (single-slot), so they must not
-    # consume an image part index.
-    last_img_part = QuestionAsset.query.filter_by(
-        question_id=question_id, version=version,
-        asset_type=asset_type, file_format='IMG'
-    ).order_by(QuestionAsset.part_number.desc()).first()
-    next_img_part = (last_img_part.part_number + 1) if last_img_part else 1
-
-    uploaded = []
-    errors = []
-    for f in files:
-        if not f.filename:
-            continue
-
-        ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else 'png'
-
-        # Determine file format
-        if ext in ('png', 'jpg', 'jpeg', 'gif', 'bmp'):
-            file_format = 'IMG'
-        elif ext in ('doc', 'docx'):
-            file_format = 'DOC'
-        elif ext in ('md', 'markdown'):
-            file_format = 'MD'
-        else:
-            errors.append(_t('{filename}: unsupported extension', filename=f.filename))
-            continue
-
-        if asset_type == 'WHOLE' and file_format != 'IMG':
-            errors.append(_t('{filename}: a whole-question copy must be an image', filename=f.filename))
-            continue
-
-        if file_format == 'MD':
-            # MD is single-slot: reject if an MD asset already exists.
-            existing_md = QuestionAsset.query.filter_by(
-                question_id=question_id, version=version,
-                asset_type=asset_type, file_format='MD'
-            ).first()
-            if existing_md:
-                errors.append(_t(
-                    '{filename}: a Markdown asset already exists for {asset_type}/{version}. Edit or delete it first.',
-                    filename=f.filename, asset_type=asset_type, version=version))
-                continue
-
-            # Enforce size cap (read into memory; MD files are small text).
-            data = f.read()
-            if len(data) > md_max:
-                errors.append(_t('{filename}: exceeds MD_MAX_SIZE_BYTES ({md_max} bytes)',
-                                 filename=f.filename, md_max=md_max))
-                continue
-            # Normalise extension to .md for consistency.
-            ext = 'md'
-            filename = f"{question.qid}_{version}_{asset_type}.{ext}"
-            part_to_use = 1
-
-        elif file_format == 'DOC':
-            # DOC is single-slot too: only one Word document per (version, atype).
-            existing_doc = QuestionAsset.query.filter_by(
-                question_id=question_id, version=version,
-                asset_type=asset_type, file_format='DOC'
-            ).first()
-            if existing_doc:
-                errors.append(_t(
-                    '{filename}: a Word document already exists for {asset_type}/{version}. Delete it first to replace.',
-                    filename=f.filename, asset_type=asset_type, version=version))
-                continue
-            filename = f"{question.qid}_{version}_{asset_type}.{ext}"
-            part_to_use = 1
-
-        else:  # IMG — multi-part allowed
-            part_suffix = f'_{next_img_part}' if next_img_part > 1 else ''
-            filename = f"{question.qid}_{version}_{asset_type}{part_suffix}.{ext}"
-            part_to_use = next_img_part
-
-        if question.source in ('DSE', 'CE', 'AL'):
-            folder = '/'.join([question.subject, 'PP', question.source,
-                               str(question.year), question.paper])
-        else:
-            detail = _extract_qb_detail(question.qid)
-            folder = '/'.join([question.subject, 'QB', detail])
-
-        rel_path = f"{folder}/{filename}"
-        full_path = os.path.join(source_path, *rel_path.split('/'))
-
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        if file_format == 'MD':
-            with open(full_path, 'wb') as out:
-                out.write(data)
-        else:
-            f.save(full_path)
-
-        asset = QuestionAsset(
-            question_id=question_id,
-            asset_type=asset_type,
-            file_format=file_format,
-            version=version,
-            file_path=rel_path,
-            part_number=part_to_use
-        )
-        db.session.add(asset)
-        uploaded.append({
-            'asset': asset,  # bound to session; id populated on flush
-            'part_number': part_to_use,
-            'file_path': rel_path,
-            'file_format': file_format,
-        })
-        if file_format == 'IMG':
-            next_img_part += 1
+    try:
+        result = library_ops.upload_assets(question, version, asset_type, request.files.getlist('files'))
+    except library_ops.OpError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), e.status
+    uploaded, errors = result['uploaded'], result['errors']
 
     db.session.commit()
-
-    # Post-commit DOC thumbnail lifecycle:
-    #   * IMG just uploaded into a slot → delete any stale DOC thumbnail.
-    #   * DOC just uploaded into a slot → schedule async thumbnail render
-    #     (only if no IMG wins the same slot).
-    from app import doc_thumbnails
-    for u in uploaded:
-        a = u['asset']
-        if a.file_format == 'IMG':
-            doc_thumbnails.on_img_asset_created(a)
-        elif a.file_format == 'DOC':
-            doc_thumbnails.on_doc_asset_created(a)
+    library_ops.after_upload(uploaded)
 
     return jsonify({
         'success': True,

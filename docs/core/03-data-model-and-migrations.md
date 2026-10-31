@@ -36,6 +36,12 @@ erDiagram
   questions ||--o{ tag_corrections : judged
   subjects ||..o{ subject_restore_points : "snapshots (no FK)"
   users ||--o{ subject_restore_points : took
+  review_batches ||--o{ review_items : holds
+  questions ||..o{ review_items : "proposes (no FK)"
+  support_requests ||--o{ support_request_questions : links
+  support_requests ||--o{ support_request_messages : thread
+  support_request_messages ||--o{ support_request_attachments : files
+  support_requests ||--o{ support_request_reads : read_by
 ```
 
 ## Tables
@@ -66,6 +72,21 @@ erDiagram
 | `SubjectPromptNote` | `subject_prompt_notes` | Subject-admin instructions layered on an AI feature (`feature='tag'`) | unique `(subject_id, feature)`; `mode` `append/replace`; `content`; `examples_limit` 0–30; FK `subjects.id` CASCADE. See [../modules/subject-ai.md](../modules/subject-ai.md) |
 | `TagCorrection` | `tag_corrections` | Model suggestion vs teacher decision per field | `question_id` CASCADE, `subject_id` idx, `field`, `suggested` / `saved` display names, `agreed`, `reason`, `model`, `user_id`, `created_at` |
 | `SubjectRestorePoint` | `subject_restore_points` | One subject's topic/chapter lists + every question's tag fields, as they were **before** a save | `subject_id` VARCHAR(10) idx, **no FK** (subject delete clears rows explicitly); `user_id` FK `users.id` `SET NULL`; `action`; `note` ≤ 200; `pinned` TINYINT(1) NOT NULL DEFAULT 0; `payload` MEDIUMTEXT versioned JSON (`subject_snapshot.encode_state`); `created_at`. Pruned per subject on every capture (newest 100 + first per UTC day for 30 days + every pinned row). See [../modules/subject-snapshots.md](../modules/subject-snapshots.md) |
+
+### Agent, Review and Requests tables
+
+Created by one boot patch (`AGENT_REVIEW_REQUEST_MODELS`, `checkfirst`, parents first), all `ENGINE=InnoDB`, utf8mb4_unicode_ci. Foreign keys exist **only between these tables**; `users.id`, `questions.id` and `subjects.id` are stored as plain columns so rows outlive deleted questions (the QID text is kept) and user erase can null them. Specs: [../modules/agent-mcp.md](../modules/agent-mcp.md), [../modules/review.md](../modules/review.md), [../modules/requests.md](../modules/requests.md).
+
+| Model | Table | Purpose | Constraints and notes |
+|---|---|---|---|
+| `AgentActionLog` | `agent_action_log` | One write tool call through `/mcp` | `tool`, `outcome` `ok` / `error`, `agent_name`, `subject_id` / `question_id` / `request_id` / `batch_id` (what it touched), `reason` ≤ 500, `summary` (arguments, long values cut), `error`; indexed `created_at`, `tool`, `subject_id`, `request_id`. Never holds the token |
+| `ReviewBatch` | `review_batches` | Proposed changes for one subject | `subject_id` idx, `title` ≤ 200, `summary`, `source` `agent` / `import`, `agent_name`, `created_by` (users.id), `linked_request_id`, `status` `open` / `done` / `archived` idx, `created_at`, `updated_at` |
+| `ReviewItem` | `review_items` | One proposal | FK `batch_id` CASCADE; `question_id` idx (no FK) + `qid` text; `position`; `kind` `fields` / `freeform`; `changes` JSON `[{field, old, new}]` (taxonomy values as ids, fields from `question_edit_service.FIELDS`); `title`, `rationale`, `confidence` 0–1; `status` `pending` / `skipped` / `applied` / `done` / `rejected` idx; `applied_changes` JSON (what actually changed); `admin_note` ≤ 1000; `decided_by` (users.id), `decided_at` |
+| `SupportRequest` | `support_requests` | An issue thread | `title` ≤ 200, `category` `question` / `general` / `app_bug` / `feature`, `subject_id` idx (NULL = general), `reporter_id` idx (users.id; NULL after erase), `status` `open` / `in_progress` / `needs_info` / `awaiting_approval` / `approved` / `resolved` / `closed` idx, `last_actor_kind` `user` / `admin` / `agent`, `last_message_at` idx, `closed_by`, `closed_at` |
+| `SupportRequestQuestion` | `support_request_questions` | A question the thread is about | FK `request_id` CASCADE; `question_id` idx (no FK); `qid` and `subject_id` copied at report time |
+| `SupportRequestMessage` | `support_request_messages` | One thread entry | FK `request_id` CASCADE; `author_kind` `user` / `agent` / `system`; `author_user_id`; `agent_name`; `kind` `message` / `approval_request` / `approval` / `rejection` / `status_change`; `body` MEDIUMTEXT; `meta` JSON; `created_at` idx |
+| `SupportRequestAttachment` | `support_request_attachments` | A file on a message | FK `message_id` CASCADE; `request_id` idx; `original_name`, `stored_name` (file under `STORAGE_PATH/Requests/<request_id>/`), `mime`, `size` |
+| `SupportRequestRead` | `support_request_reads` | Last message a user has seen | PK `(user_id, request_id)`; FK `request_id` CASCADE; `last_read_message_id` |
 
 ### SMS sign-in tables
 

@@ -321,7 +321,9 @@ A per-subject undo for tagging mistakes. Just **before** any of these saves, the
 - **Bulk Edit** on the dashboard (one point per subject);
 - importing the Question Tags, Topics or Chapters CSV;
 - starting an **Auto Tag** run;
-- a PDF Batch Import that writes marks (one point, taken just before the import saves them).
+- a PDF Batch Import that writes marks (one point, taken just before the import saves them);
+- applying a **Review** item that changes tags (one point for **Apply all…**);
+- a tag, topic or chapter change made by the **AI agent** (shown as *AI agent edit*, with the agent's reason as the note).
 
 Marks count as part of the saved state, so restoring a point also restores the marks.
 
@@ -335,6 +337,30 @@ The page shows one subject at a time (same subject picker as Topics / Chapters) 
 What a restore does **not** do: it does not touch answers, comments, question descriptions, verified / checked flags, or files; it does not bring back questions that were deleted since the point; questions added since keep their tags; topics or chapters added since are kept if questions still use them. Other subjects are never changed. Ask other teachers not to edit the subject while you restore.
 
 Split into parts, Combine parts, set parent and PDF import do not create restore points.
+
+### Review (`Admin → Review`, per subject)
+
+A place to check proposed tag and field changes one question at a time, instead of trusting a list blindly. Proposals come in **batches**: from the AI agent, or pasted as JSON on **Import JSON** (preview first; rows with errors are dropped, warnings are shown). The yellow number next to **Review** in the Admin menu counts items waiting in your subjects.
+
+Open a batch to work through it. Each item shows the question (Question / Answer / Solution and version switch) next to a table of fields: **Now** and **Proposed**, the agent's reason and its confidence.
+
+- **Apply** (key A) writes the ticked fields. Untick a field to leave it, or click the pencil to change the proposed value first. A restore point is saved before any tag change.
+- **Reject** (R) with a note for the agent: why it was wrong. **Skip** (S) leaves the item for later. **Edit** (E) opens the usual Edit window for anything else. ← and → move between items.
+- If the question changed after the proposal was made, the item says so and shows what the proposal saw. Check the current values; applying asks you to confirm.
+- **Apply all…** applies every pending item (optionally only those at or above a confidence level) under one restore point. Items whose question changed stay pending for you.
+- **Batch → Mark done / Archive / Reopen** tidies the list.
+
+Applied and rejected tag decisions are added to the **Teacher corrections report** in AI Tagging Tuning, so Auto Tag learns from them. A batch can be linked to a request; the link appears on both pages.
+
+### Requests (admin side)
+
+Teachers report problems from the dashboard (**Report**), the Enlarge view, the Edit window or Question Management (**Report issue**); see the User Manual, section 12. The **Requests** menu in the top bar lists them with a red unread count. Admins see the **My subjects** tab (requests about their subjects); super admins also see **All requests**, including general ones without a subject.
+
+As an admin of a request's subject you can reply, attach files, change its status, and open or edit the linked questions from the right-hand panel. The **Waiting for the agent** filter shows what the AI agent will pick up on its next run: open requests where a person spoke last, and approved plans.
+
+**Approving the agent's plans.** Before a change that needs consent, the agent posts a plan and the request shows **Awaiting approval** with **Approve** / **Reject** buttons. Only an admin of *every* subject of the request (a super admin for a general request) can decide. Rejecting needs a note so the agent can revise the plan. The agent carries out an approved plan on its next run and posts what it did; if it replaces a file, the old file is attached to the thread first.
+
+Requests are never deleted. Deleting a subject turns its requests into general ones (reporter and super admins only); deleting a user keeps their requests for the admins.
 
 ### Batch Operations
 
@@ -716,6 +742,8 @@ A DB-backed page for runtime tunables. Changes apply immediately to the running 
 | Toolbox | `TOOLBOX_DEFAULT_DPI`, `TOOLBOX_OCR_DPI`, `TOOLBOX_OCR_WORKERS`, `TOOLBOX_OCR_AUTO_ORIENT`, `TOOLBOX_SESSION_RETENTION_HOURS` | PDF Tool export DPI, Find & Mark OCR settings, and how many hours staging sessions stay in the **Restore session** list before purge (default 48). |
 | Markup | `MARKUP_NORMALIZED_MAX_DIM` | Longest-edge canvas size (world units) for imported Markup images (default 2400). Larger = bigger default fit view and thicker default pen sizes. |
 | SMS sign-in | `SMS_SSO_ENABLED`, `SMS_LOGIN_BUTTON_ENABLED`, `SMS_JIT_ENABLED`, `SMS_FEED_ENABLED`, `SMS_FEED_BRAKE_MIN`, `SMS_FEED_BRAKE_PCT`, `SMS_EMBED_ENABLED` | See section 5 "SMS sign-in (when enabled)" and [SMS_SSO_DEPLOYMENT.md](SMS_SSO_DEPLOYMENT.md). `SMS_LOGIN_BUTTON_ENABLED` (off by default) shows **Sign in with SMS** on the OQB login page; leave it off when staff should open OQB only from inside the SMS. `SMS_EMBED_ENABLED` lets the SMS show OQB inside its own page (HTTPS only); leave it off otherwise. |
+| Requests and Review | `REQUESTS_ENABLED`, `REQUESTS_MIN_REPORT_LEVEL`, `REQUESTS_MAX_ATTACHMENT_MB`, `REQUESTS_MAX_ATTACHMENTS_PER_MESSAGE` | Turn Requests on or off, the lowest role that may report (default `user`; `viewer` lets view-only staff report too), and attachment limits (20 MB, 10 files per message). |
+| AI agent | `AGENT_MCP_ENABLED`, `AGENT_MCP_ALLOWED_IPS`, `AGENT_DEFAULT_NAME` | The AI agent endpoint (off by default) and the addresses allowed to call it (default this computer only). See "AI agent endpoint" below. |
 | Sign-in and sessions | `CSRF_MODE`, `PASSWORD_SESSION_LIMITS`, `PASSWORD_REMEMBER_DAYS` | `CSRF_MODE`: keep `enforce`; `report` only logs refused posts (first days of a deployment). Password sessions end after 12 h or 2 h idle unless **Remember me** was ticked (unlinked accounts only, up to `PASSWORD_REMEMBER_DAYS`, 0 hides the box). SMS sessions always end after 12 h / 2 h idle. |
 
 The authoritative list with types, ranges, and defaults is [docs/core/06-system-settings.md](../core/06-system-settings.md).
@@ -743,8 +771,22 @@ Secrets and infrastructure paths are intentionally NOT exposed here:
 - `SOURCE_PATH`, `OUTPUT_PATH`, `DOC_THUMBNAIL_PATH`
 - `PANDOC_PATH`
 - `LLM_API_KEY` (global fallback LLM key), `LLM_KEY_SECRET` (Fernet secret for encrypting endpoint keys — rotating it invalidates stored keys)
+- `AGENT_API_TOKEN` (the AI agent's key), `REQUESTS_PATH` (where request attachments are kept; default `STORAGE_PATH\Requests`)
 
 Edit these in `.env` and restart the server.
+
+### AI agent endpoint (MCP)
+
+An external AI agent (for example a scheduled Grok bot running on the server) can read the library, handle Requests, submit Review batches and make changes through `/mcp`. Every change it makes is logged, carries a reason, and takes a restore point before tag or topic changes. It cannot delete anything.
+
+To set it up:
+
+1. Put a long random value in `.env` as `AGENT_API_TOKEN` and restart the server. Treat it like a password: it gives **super-admin** access.
+2. Turn on **AI agent → `AGENT_MCP_ENABLED`** here. Leave `AGENT_MCP_ALLOWED_IPS` at `127.0.0.1,::1` when the agent runs on this server; add another address only for a trusted machine.
+3. Point the agent at `http://127.0.0.1:5000/mcp` with the header `Authorization: Bearer <token>` (and `X-Agent-Name: Grok` so its messages carry a name). For an agent that can only start a local program, use `scripts/oqb_mcp_stdio.py` with the token in the `OQB_MCP_TOKEN` environment variable.
+4. The agent first calls `get_instructions`, which returns the agent playbook (`docs/agents/PLAYBOOK.md`): how to work through requests, when to ask for approval, how to propose review batches.
+
+To stop the agent at once, turn `AGENT_MCP_ENABLED` off; the endpoint then answers "not found". To review what it did, ask it (or a developer) for `list_agent_actions`, check the request threads it posted in, and use **Restore Points** to undo tag changes.
 
 ### Tips
 

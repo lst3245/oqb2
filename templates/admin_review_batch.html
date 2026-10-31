@@ -1,0 +1,573 @@
+{% extends "base.html" %}
+{#
+   One review batch, one question at a time (/admin/review/<id>).
+   Left: the question (stem pages first for a part) through the dashboard
+   preview API. Right: the proposed change with current / proposed values,
+   Apply / Reject / Skip / Edit, and the item list.
+   Keys: A apply, R reject, S skip, E edit, arrows (or J / K) next / previous.
+   Hosts the shared Edit modal; page names use the rv prefix.
+   Spec: docs/modules/review.md
+#}
+
+{% block title %}{{ t('Review: {title} - Question Bank', title=batch.title) }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.rv-images img.rv-img { width: 100%; display: block; margin-bottom: 4px; border: 1px solid var(--bs-border-color); background: #fff; }
+.rv-context { opacity: .85; border-left: 3px solid var(--bs-secondary-border-subtle); padding-left: .5rem; margin-bottom: .75rem; }
+.rv-images { max-height: calc(100vh - 220px); overflow-y: auto; }
+.rv-rationale { white-space: pre-wrap; }
+#rvList { max-height: 40vh; overflow-y: auto; }
+#rvList .list-group-item { cursor: pointer; }
+.rv-kbd { font-size: .7rem; opacity: .7; }
+.rv-diff td { vertical-align: top; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3 px-4">
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+            <h4 class="mb-0"><i class="bi bi-ui-checks"></i> {{ batch.title }}</h4>
+            <div class="small text-muted">
+                #{{ batch.id }} · {{ batch.subject }}{% if subject %} · {{ tax_name(subject) }}{% endif %} ·
+                {% if batch.source == 'agent' %}<i class="bi bi-robot"></i> {{ batch.agent_name or t('AI agent') }}{% else %}<i class="bi bi-upload"></i> {{ t('Import') }}{% endif %}
+                {% if batch.linked_request_id %} ·
+                <a href="{{ url_for('support_requests.thread', request_id=batch.linked_request_id) }}"><i class="bi bi-chat-left-text"></i> {{ t('Request #{id}', id=batch.linked_request_id) }}</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span id="rvBatchStatus" class="badge bg-secondary"></span>
+            <div class="dropdown">
+                <button class="btn btn-outline-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                    <i class="bi bi-check2-all"></i> {{ t('Apply all…') }}
+                </button>
+                <div class="dropdown-menu dropdown-menu-end p-3" style="min-width: 300px">
+                    <label class="form-label small" for="rvMinConf">{{ t('Only items with confidence at least (blank = every pending item)') }}</label>
+                    <div class="input-group input-group-sm mb-2">
+                        <input type="number" id="rvMinConf" class="form-control" min="0" max="100" step="5" placeholder="80">
+                        <span class="input-group-text">%</span>
+                    </div>
+                    <div class="small text-muted mb-2">{{ t('Items whose question changed since the proposal stay pending. One restore point is saved first.') }}</div>
+                    <button class="btn btn-success btn-sm w-100" onclick="rvApplyAll()">{{ t('Apply pending items') }}</button>
+                </div>
+            </div>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">{{ t('Batch') }}</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><button class="dropdown-item" onclick="rvSetBatchStatus('done')"><i class="bi bi-check-circle"></i> {{ t('Mark done') }}</button></li>
+                    <li><button class="dropdown-item" onclick="rvSetBatchStatus('archived')"><i class="bi bi-archive"></i> {{ t('Archive') }}</button></li>
+                    <li><button class="dropdown-item" onclick="rvSetBatchStatus('open')"><i class="bi bi-arrow-counterclockwise"></i> {{ t('Reopen') }}</button></li>
+                </ul>
+            </div>
+            <a href="{{ url_for('review.index') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> {{ t('All batches') }}</a>
+        </div>
+    </div>
+    {% if batch.summary %}
+    <div class="alert alert-light border small py-2 rv-rationale">{{ batch.summary }}</div>
+    {% endif %}
+    <div class="progress mb-1" style="height: 8px">
+        <div id="rvBarApplied" class="progress-bar bg-success" style="width: 0"></div>
+        <div id="rvBarDone" class="progress-bar bg-info" style="width: 0"></div>
+        <div id="rvBarRejected" class="progress-bar bg-secondary" style="width: 0"></div>
+    </div>
+    <div id="rvCounts" class="small text-muted mb-3"></div>
+
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                    <strong id="rvQid">…</strong>
+                    <div class="btn-group btn-group-sm ms-auto" role="group" id="rvSlotBtns">
+                        <button class="btn btn-outline-secondary active" data-slot="QUE">{{ t('Question') }}</button>
+                        <button class="btn btn-outline-secondary" data-slot="ANS">{{ t('Answer') }}</button>
+                        <button class="btn btn-outline-secondary" data-slot="SOL">{{ t('Solution') }}</button>
+                    </div>
+                    <select id="rvVersion" class="form-select form-select-sm" style="width: auto">
+                        <option value="">{{ t('Version: auto') }}</option>
+                        {% for v in OQB_VERSIONS %}<option value="{{ v }}">{{ OQB_VERSION_LABELS.get(v, v) }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="card-body rv-images" id="rvImages"></div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card" id="rvItemCard"><div class="card-body text-muted">{{ t('Loading…') }}</div></div>
+            <div class="card mt-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <span class="fw-semibold">{{ t('Items') }}</span>
+                    <select id="rvFilter" class="form-select form-select-sm ms-auto" style="width: auto">
+                        <option value="open">{{ t('To do (pending and skipped)') }}</option>
+                        <option value="all">{{ t('All') }}</option>
+                        <option value="applied">{{ t('Applied') }}</option>
+                        <option value="done">{{ t('Done') }}</option>
+                        <option value="rejected">{{ t('Rejected') }}</option>
+                    </select>
+                </div>
+                <div class="list-group list-group-flush small" id="rvList"></div>
+            </div>
+            <div class="small text-muted mt-2">
+                {{ t('Keys: A apply · R reject · S skip · E edit · ← → previous / next') }}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% include 'partials/edit_question_modal.html' %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.RV_CONFIG = {
+    batchId: {{ batch.id }},
+    startItem: {{ start_item | tojson }},
+    urls: {
+        items: {{ url_for('review.batch_items', batch_id=batch.id) | tojson }},
+        item: {{ url_for('review.item_detail', item_id=0) | tojson }},
+        apply: {{ url_for('review.item_apply', item_id=0) | tojson }},
+        reject: {{ url_for('review.item_reject', item_id=0) | tojson }},
+        skip: {{ url_for('review.item_skip', item_id=0) | tojson }},
+        reopen: {{ url_for('review.item_reopen', item_id=0) | tojson }},
+        applyAll: {{ url_for('review.batch_apply_all', batch_id=batch.id) | tojson }},
+        status: {{ url_for('review.batch_status', batch_id=batch.id) | tojson }},
+        preview: {{ url_for('dashboard.get_question_preview', question_id=0, asset_type='QUE') | tojson }},
+    },
+};
+</script>
+<script>
+{% include 'partials/edit_question_modal_js.html' %}
+</script>
+<script>
+const RV = {items: [], currentId: null, filter: 'open', slot: 'QUE', version: '', taxonomy: {}, edits: {}, busy: false, imgToken: 0, shownQuestion: null};
+
+const RV_STATUS = {
+    pending: OQB.t('Pending'), skipped: OQB.t('Skipped'), applied: OQB.t('Applied'),
+    done: OQB.t('Done'), rejected: OQB.t('Rejected'),
+};
+const RV_BATCH_STATUS = {open: OQB.t('Open'), done: OQB.t('Done'), archived: OQB.t('Archived')};
+const RV_STATUS_BADGE = {pending: 'bg-primary', skipped: 'bg-warning text-dark', applied: 'bg-success', done: 'bg-info text-dark', rejected: 'bg-secondary'};
+const RV_FIELD_LABELS = {
+    'Level': OQB.t('Level'), 'Type': OQB.t('Type'), 'Section': OQB.t('Section'),
+    'Description': OQB.t('Description'), 'Answer': OQB.t('Answer'), 'Comment': OQB.t('Comment'),
+    'Correct %': OQB.t('Correct %'), 'Marks': OQB.t('Marks'), 'Major topic': OQB.t('Major topic'),
+    'Major subtopic': OQB.t('Major subtopic'), 'Minor topics': OQB.t('Minor topics'),
+    'Subtopics': OQB.t('Subtopics'), 'Chapter': OQB.t('Chapter'), 'Subchapter': OQB.t('Subchapter'),
+};
+
+function rvEsc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+function rvUrl(key, id) { return RV_CONFIG.urls[key].replace('/0/', `/${id}/`).replace(/\/0$/, `/${id}`); }
+function rvCurrent() { return RV.items.find(i => i.id === RV.currentId) || null; }
+function rvIsOpen(item) { return item.status === 'pending' || item.status === 'skipped'; }
+function rvVisible() {
+    return RV.items.filter(i => RV.filter === 'all' || (RV.filter === 'open' ? rvIsOpen(i) : i.status === RV.filter));
+}
+
+async function rvPost(url, body) {
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+    let data = {};
+    try { data = await r.json(); } catch (e) { data = {success: false, error: OQB.t('Unexpected response ({status})', {status: r.status})}; }
+    return {status: r.status, data};
+}
+
+// ------------------------------------------------------------ batch header
+
+function rvRenderBatch(b) {
+    const el = document.getElementById('rvBatchStatus');
+    el.textContent = RV_BATCH_STATUS[b.status] || b.status;
+    el.className = 'badge ' + (b.status === 'open' ? 'bg-primary' : b.status === 'done' ? 'bg-success' : 'bg-secondary');
+    const c = b.counts, total = b.total || 1;
+    document.getElementById('rvBarApplied').style.width = (100 * c.applied / total) + '%';
+    document.getElementById('rvBarDone').style.width = (100 * c.done / total) + '%';
+    document.getElementById('rvBarRejected').style.width = (100 * c.rejected / total) + '%';
+    document.getElementById('rvCounts').textContent = OQB.t('{pending} pending · {skipped} skipped · {applied} applied · {rejected} rejected · {total} items',
+        {pending: c.pending, skipped: c.skipped, applied: c.applied + c.done, rejected: c.rejected, total: b.total});
+}
+
+// ------------------------------------------------------------ loading
+
+async function rvLoad(focusId) {
+    const r = await fetch(RV_CONFIG.urls.items);
+    const data = await r.json();
+    if (!data.success) { showToast(data.error || OQB.t('Could not load the batch'), 'danger'); return; }
+    RV.items = data.items;
+    RV.taxonomy = data.taxonomy || {};
+    rvRenderBatch(data.batch);
+    let target = focusId ? RV.items.find(i => i.id === focusId) : null;
+    if (target && RV.filter !== 'all' && !rvVisible().includes(target)) RV.filter = 'all';
+    if (!target) target = rvVisible()[0] || RV.items[0] || null;
+    if (!target) RV.filter = 'all';
+    document.getElementById('rvFilter').value = RV.filter;
+    rvShow(target ? target.id : null);
+}
+
+async function rvRefreshItem(id) {
+    const r = await fetch(rvUrl('item', id));
+    const data = await r.json();
+    if (!data.success) return;
+    rvReplace(data.item);
+    rvRenderBatch(data.batch);
+    if (RV.currentId === id) rvShow(id, {keepImages: true});
+}
+
+function rvReplace(item) {
+    const i = RV.items.findIndex(x => x.id === item.id);
+    if (i >= 0) RV.items[i] = item;
+}
+
+// ------------------------------------------------------------ list
+
+function rvRenderList() {
+    const list = document.getElementById('rvList');
+    const visible = rvVisible();
+    if (!visible.length) {
+        list.innerHTML = `<div class="list-group-item text-muted">${rvEsc(OQB.t('Nothing here.'))}</div>`;
+        return;
+    }
+    list.innerHTML = visible.map(i => {
+        const first = i.kind === 'freeform' ? (i.title || '') : (i.changes || []).map(c => RV_FIELD_LABELS[c.label] || c.label).join(', ');
+        return `<div class="list-group-item d-flex align-items-center gap-2 ${i.id === RV.currentId ? 'active' : ''}" data-id="${i.id}">
+            <span class="badge ${RV_STATUS_BADGE[i.status] || 'bg-secondary'}">${rvEsc(RV_STATUS[i.status] || i.status)}</span>
+            <span class="font-monospace">${rvEsc(i.qid || '—')}</span>
+            <span class="text-truncate ${i.id === RV.currentId ? '' : 'text-muted'}">${rvEsc(first)}</span>
+            ${i.stale.length && rvIsOpen(i) ? '<i class="bi bi-exclamation-triangle text-warning ms-auto"></i>' : ''}
+        </div>`;
+    }).join('');
+    list.querySelectorAll('[data-id]').forEach(el => el.addEventListener('click', () => rvShow(+el.dataset.id)));
+    list.querySelector('.active')?.scrollIntoView({block: 'nearest'});
+}
+
+// ------------------------------------------------------------ item
+
+function rvValueEditor(c) {
+    const cur = RV.edits[c.field] !== undefined ? RV.edits[c.field] : c.new;
+    const opt = (v, label, selected) => `<option value="${rvEsc(v)}" ${selected ? 'selected' : ''}>${rvEsc(label)}</option>`;
+    if (c.kind === 'level') {
+        return `<select class="form-select form-select-sm rv-edit" data-field="${c.field}">${opt('', '—', cur == null)}${[1, 2, 3].map(v => opt(v, v, cur == v)).join('')}</select>`;
+    }
+    if (c.kind === 'q_type') {
+        return `<select class="form-select form-select-sm rv-edit" data-field="${c.field}">${opt('', '—', !cur)}${['MC', 'CQ'].map(v => opt(v, v, cur === v)).join('')}</select>`;
+    }
+    if (c.kind === 'ref' || c.kind === 'refs') {
+        const nodes = RV.taxonomy[c.tax] || [];
+        const chosen = c.kind === 'refs' ? new Set((cur || []).map(Number)) : new Set(cur ? [Number(cur)] : []);
+        const multi = c.kind === 'refs' ? 'multiple size="6"' : '';
+        return `<select class="form-select form-select-sm rv-edit" data-field="${c.field}" ${multi}>
+            ${c.kind === 'ref' ? opt('', '—', !cur) : ''}
+            ${nodes.map(n => opt(n.id, n.label, chosen.has(n.id))).join('')}</select>`;
+    }
+    if (c.kind === 'text' && c.field !== 'section') {
+        return `<textarea class="form-control form-control-sm rv-edit" data-field="${c.field}" rows="3">${rvEsc(cur ?? '')}</textarea>`;
+    }
+    const type = (c.kind === 'marks' || c.kind === 'pct') ? 'number' : 'text';
+    return `<input type="${type}" class="form-control form-control-sm rv-edit" data-field="${c.field}" value="${rvEsc(cur ?? '')}">`;
+}
+
+function rvRenderItem(item) {
+    const card = document.getElementById('rvItemCard');
+    if (!item) {
+        card.innerHTML = `<div class="card-body text-muted">${rvEsc(OQB.t('No items to show.'))}</div>`;
+        return;
+    }
+    const visible = rvVisible();
+    const pos = visible.findIndex(i => i.id === item.id);
+    const open = rvIsOpen(item);
+    const conf = item.confidence == null ? '' :
+        `<span class="badge ${item.confidence >= 0.8 ? 'bg-success-subtle text-success-emphasis' : item.confidence >= 0.5 ? 'bg-warning-subtle text-warning-emphasis' : 'bg-danger-subtle text-danger-emphasis'}">${rvEsc(OQB.t('Confidence {pct}%', {pct: Math.round(item.confidence * 100)}))}</span>`;
+    let body = '';
+    if (item.kind === 'freeform') {
+        body += `<h6 class="mb-2"><i class="bi bi-chat-left-text"></i> ${rvEsc(item.title || OQB.t('Note'))}</h6>`;
+    }
+    if (item.rationale) body += `<div class="rv-rationale small mb-2">${rvEsc(item.rationale)}</div>`;
+    if (item.question_id && !item.question_exists) {
+        body += `<div class="alert alert-danger py-1 small">${rvEsc(OQB.t('This question no longer exists in the subject.'))}</div>`;
+    }
+    if (open && item.stale.length) {
+        body += `<div class="alert alert-warning py-1 small"><i class="bi bi-exclamation-triangle"></i> ${rvEsc(OQB.t('Changed since the proposal: {fields}. Check the current values before applying.', {fields: item.changes.filter(c => c.stale).map(c => RV_FIELD_LABELS[c.label] || c.label).join(', ')}))}</div>`;
+    }
+    if (item.kind === 'fields' && item.changes.length) {
+        body += `<table class="table table-sm small rv-diff mb-2"><thead><tr>
+            <th style="width: 1.5rem"></th><th>${rvEsc(OQB.t('Field'))}</th><th>${rvEsc(OQB.t('Now'))}</th><th>${rvEsc(OQB.t('Proposed'))}</th></tr></thead><tbody>`;
+        for (const c of item.changes) {
+            const edited = RV.edits[c.field] !== undefined;
+            const now = c.current_label || '—';
+            const seen = c.stale ? `<div class="text-warning-emphasis">${rvEsc(OQB.t('proposal saw: {value}', {value: c.old_label || '—'}))}</div>` : '';
+            const proposed = (open && edited) ? rvValueEditor(c)
+                : `<strong>${rvEsc(c.new_label || '—')}</strong>${c.noop ? ` <span class="badge bg-light text-dark border">${rvEsc(OQB.t('already set'))}</span>` : ''}`;
+            const pencil = (open && !edited && item.question_exists) ? `<button class="btn btn-link btn-sm p-0 ms-1" title="${rvEsc(OQB.t('Change the proposed value'))}" onclick="rvStartEdit('${c.field}')"><i class="bi bi-pencil"></i></button>` : '';
+            body += `<tr class="${c.stale && open ? 'table-warning' : ''}">
+                <td>${open ? `<input type="checkbox" class="form-check-input rv-field" data-field="${c.field}" ${c.noop ? 'disabled' : 'checked'}>` : ''}</td>
+                <td>${rvEsc(RV_FIELD_LABELS[c.label] || c.label)}</td>
+                <td>${rvEsc(now)}${seen}</td>
+                <td>${proposed}${pencil}</td></tr>`;
+        }
+        body += '</tbody></table>';
+    }
+    if (item.status === 'applied' && item.applied.length) {
+        body += `<div class="small text-success mb-2"><i class="bi bi-check2"></i> ${rvEsc(OQB.t('Applied:'))} ` +
+            item.applied.map(a => `${rvEsc(RV_FIELD_LABELS[a.label] || a.label)}: ${rvEsc(a.old_label || '—')} → ${rvEsc(a.new_label || '—')}`).join('; ') + '</div>';
+    } else if (item.status === 'applied' && item.kind === 'fields') {
+        body += `<div class="small text-success mb-2"><i class="bi bi-check2"></i> ${rvEsc(OQB.t('Applied (nothing needed changing).'))}</div>`;
+    }
+    if (open) {
+        body += `<textarea id="rvNote" class="form-control form-control-sm mb-2" rows="2" maxlength="1000" placeholder="${rvEsc(OQB.t('Note for the agent (optional; say why when you reject)'))}"></textarea>`;
+    } else if (item.admin_note) {
+        body += `<div class="small mb-2"><span class="text-muted">${rvEsc(OQB.t('Note:'))}</span> ${rvEsc(item.admin_note)}</div>`;
+    }
+    const canEdit = item.question_exists;
+    const btn = (cls, icon, label, key, fn, disabled) =>
+        `<button class="btn btn-sm ${cls}" onclick="${fn}" ${disabled ? 'disabled' : ''}><i class="bi ${icon}"></i> ${rvEsc(label)} <span class="rv-kbd">${key}</span></button>`;
+    let actions = '';
+    if (open) {
+        actions += btn('btn-success', 'bi-check-lg', item.kind === 'freeform' ? OQB.t('Mark done') : OQB.t('Apply'), 'A', 'rvApply()', item.kind === 'fields' && !item.question_exists);
+        actions += btn('btn-outline-danger', 'bi-x-lg', OQB.t('Reject'), 'R', 'rvReject()');
+        if (item.status === 'pending') actions += btn('btn-outline-secondary', 'bi-skip-forward', OQB.t('Skip'), 'S', 'rvSkip()');
+    } else if (item.status !== 'applied') {
+        actions += `<button class="btn btn-sm btn-outline-secondary" onclick="rvReopen()"><i class="bi bi-arrow-counterclockwise"></i> ${rvEsc(OQB.t('Reopen'))}</button>`;
+    }
+    if (canEdit) actions += btn('btn-outline-primary', 'bi-pencil-square', OQB.t('Edit'), 'E', 'rvEdit()');
+    const decided = item.decided_at ? `<div class="small text-muted mt-2">${rvEsc(OQB.t('{status} by {name} at {when}', {status: RV_STATUS[item.status] || item.status, name: item.decided_by_name || '—', when: window.oqbFormatLocalTime(item.decided_at)}))}</div>` : '';
+    card.innerHTML = `<div class="card-header d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge ${RV_STATUS_BADGE[item.status] || 'bg-secondary'}">${rvEsc(RV_STATUS[item.status] || item.status)}</span>
+            ${conf}
+            ${item.is_stem ? `<span class="badge bg-light text-dark border">${rvEsc(OQB.t('Has parts'))}</span>` : ''}
+            <span class="ms-auto small text-muted">${pos >= 0 ? `${pos + 1} / ${visible.length}` : ''}</span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="rvStep(-1)" title="${rvEsc(OQB.t('Previous'))}"><i class="bi bi-chevron-left"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="rvStep(1)" title="${rvEsc(OQB.t('Next'))}"><i class="bi bi-chevron-right"></i></button>
+        </div>
+        <div class="card-body">${body}<div class="d-flex flex-wrap gap-2">${actions}</div>${decided}</div>`;
+    card.querySelectorAll('.rv-edit').forEach(el => el.addEventListener('change', () => {
+        let v;
+        if (el.multiple) v = [...el.selectedOptions].map(o => +o.value);
+        else if (el.tagName === 'SELECT') v = el.value === '' ? null : (/^\d+$/.test(el.value) ? +el.value : el.value);
+        else v = el.value;
+        RV.edits[el.dataset.field] = v;
+    }));
+}
+
+function rvStartEdit(field) {
+    const item = rvCurrent();
+    const c = item && item.changes.find(x => x.field === field);
+    if (!c) return;
+    RV.edits[field] = c.new;
+    rvRenderItem(item);
+}
+
+function rvShow(id, opts) {
+    opts = opts || {};
+    if (id !== RV.currentId) RV.edits = {};
+    RV.currentId = id;
+    const item = rvCurrent();
+    document.getElementById('rvQid').textContent = item ? (item.qid || '—') : '—';
+    rvRenderItem(item);
+    rvRenderList();
+    if (!opts.keepImages || !item || RV.shownQuestion !== item.question_id) rvRenderImages(item);
+}
+
+function rvStep(delta) {
+    const visible = rvVisible();
+    if (!visible.length) return;
+    let pos = visible.findIndex(i => i.id === RV.currentId);
+    pos = pos < 0 ? 0 : Math.min(Math.max(pos + delta, 0), visible.length - 1);
+    rvShow(visible[pos].id);
+}
+
+// After a decision: the next open item after this one (wrapping), else stay.
+function rvAdvance(fromId) {
+    const order = RV.items;
+    const start = order.findIndex(i => i.id === fromId);
+    for (let k = 1; k <= order.length; k++) {
+        const it = order[(start + k) % order.length];
+        if (rvIsOpen(it) && (RV.filter === 'all' || rvVisible().includes(it))) { rvShow(it.id); return; }
+    }
+    rvShow(fromId);
+}
+
+// ------------------------------------------------------------ images
+
+function rvPreviewUrl(questionId, slot) {
+    const versions = RV.version ? [RV.version].concat((window.OQB_DEFAULT_VERSION_PRIORITY || []).filter(v => v !== RV.version))
+        : (window.OQB_DEFAULT_VERSION_PRIORITY || []);
+    return RV_CONFIG.urls.preview.replace('/0/', `/${questionId}/`).replace(/QUE$/, slot)
+        + (versions.length ? `?version_priority=${encodeURIComponent(versions.join(','))}` : '');
+}
+
+async function rvRenderInto(body, questionId, slot, token) {
+    let data = null, status = 0;
+    try {
+        const r = await fetch(rvPreviewUrl(questionId, slot));
+        status = r.status;
+        data = await r.json();
+    } catch (e) { data = null; }
+    if (token !== RV.imgToken) return;
+    if (!data || data.error) {
+        body.innerHTML = `<div class="text-muted small">${rvEsc(status === 404 ? OQB.t('Nothing in this slot.') : (data && data.error) || OQB.t('Could not load the preview.'))}</div>`;
+        return;
+    }
+    if (data.mode === 'image') {
+        body.innerHTML = data.parts.map(p => `<a href="${rvEsc(p.url)}" target="_blank" rel="noopener"><img class="rv-img" src="${rvEsc(p.url)}" alt="" loading="lazy"></a>`).join('');
+    } else if (data.mode === 'html') {
+        window.oqbRenderMarkdownInto(body, data.html || '');
+    } else if (data.mode === 'thumbnail') {
+        body.innerHTML = `<img class="rv-img" src="${rvEsc(data.thumbnail_url)}" alt=""><a class="small" href="${rvEsc(data.download_url)}">${rvEsc(data.filename || '')}</a>`;
+    } else {
+        body.innerHTML = `<a class="small" href="${rvEsc(data.url)}"><i class="bi bi-file-earmark-word"></i> ${rvEsc(data.filename || OQB.t('Download'))}</a>`;
+    }
+}
+
+function rvRenderImages(item) {
+    const box = document.getElementById('rvImages');
+    const token = ++RV.imgToken;
+    RV.shownQuestion = item ? item.question_id : null;
+    if (!item || !item.question_id || !item.question_exists) {
+        box.innerHTML = `<div class="text-muted">${rvEsc(item && item.qid ? OQB.t('No question to show for {qid}.', {qid: item.qid}) : OQB.t('No question attached to this item.'))}</div>`;
+        return;
+    }
+    const targets = (RV.slot === 'QUE' ? item.ancestors.map(a => Object.assign({context: true}, a)) : [])
+        .concat([{id: item.question_id, qid: item.qid}]);
+    box.innerHTML = targets.map((t, n) => `<div class="${t.context ? 'rv-context' : ''}">
+        <div class="small text-muted mb-1">${t.context ? rvEsc(OQB.t('Stem {qid}', {qid: t.qid})) : rvEsc(t.qid)}</div>
+        <div id="rvSlot${n}"><div class="spinner-border spinner-border-sm text-secondary"></div></div></div>`).join('');
+    targets.forEach((t, n) => rvRenderInto(document.getElementById(`rvSlot${n}`), t.id, RV.slot, token));
+}
+
+// ------------------------------------------------------------ actions
+
+function rvNote() { return (document.getElementById('rvNote')?.value || '').trim(); }
+
+async function rvDecide(key, body, item) {
+    if (RV.busy) return null;
+    RV.busy = true;
+    try {
+        const {status, data} = await rvPost(rvUrl(key, item.id), body);
+        if (data.success) {
+            rvReplace(data.item);
+            rvRenderBatch(data.batch);
+        }
+        return {status, data};
+    } finally {
+        RV.busy = false;
+    }
+}
+
+async function rvApply(confirmStale) {
+    const item = rvCurrent();
+    if (!item || !rvIsOpen(item)) return;
+    const body = {note: rvNote(), confirm_stale: !!confirmStale};
+    if (item.kind === 'fields') {
+        if (!item.question_exists) return;
+        if (!item.all_noop) {
+            const fields = [...document.querySelectorAll('.rv-field:checked')].map(c => c.dataset.field);
+            if (!fields.length) { showToast(OQB.t('Choose at least one field to apply'), 'warning'); return; }
+            body.fields = fields;
+            const overrides = {};
+            for (const f of fields) if (RV.edits[f] !== undefined) overrides[f] = RV.edits[f];
+            if (Object.keys(overrides).length) body.overrides = overrides;
+        }
+    }
+    const res = await rvDecide('apply', body, item);
+    if (!res) return;
+    if (res.status === 409 && res.data.stale) {
+        const names = item.changes.filter(c => res.data.stale.includes(c.field)).map(c => RV_FIELD_LABELS[c.label] || c.label).join(', ');
+        if (confirm(OQB.t('These fields changed since the proposal: {fields}. Apply the proposed values anyway?', {fields: names}))) {
+            return rvApply(true);
+        }
+        rvRefreshItem(item.id);
+        return;
+    }
+    if (!res.data.success) { showToast(res.data.error || OQB.t('Could not apply'), 'danger'); return; }
+    showToast(item.kind === 'freeform' ? OQB.t('Marked done') : OQB.t('Applied'), 'success');
+    rvAdvance(item.id);
+}
+
+async function rvReject() {
+    const item = rvCurrent();
+    if (!item || !rvIsOpen(item)) return;
+    const res = await rvDecide('reject', {note: rvNote()}, item);
+    if (!res) return;
+    if (!res.data.success) { showToast(res.data.error || OQB.t('Could not reject'), 'danger'); return; }
+    showToast(OQB.t('Rejected'), 'success');
+    rvAdvance(item.id);
+}
+
+async function rvSkip() {
+    const item = rvCurrent();
+    if (!item || item.status !== 'pending') return;
+    const res = await rvDecide('skip', {}, item);
+    if (res && res.data.success) rvAdvance(item.id);
+}
+
+async function rvReopen() {
+    const item = rvCurrent();
+    if (!item || rvIsOpen(item)) return;
+    const res = await rvDecide('reopen', {}, item);
+    if (!res) return;
+    if (!res.data.success) { showToast(res.data.error || OQB.t('Could not reopen'), 'danger'); return; }
+    rvShow(item.id, {keepImages: true});
+}
+
+function rvEdit() {
+    const item = rvCurrent();
+    if (item && item.question_exists) openEditModal(item.question_id);
+}
+
+async function rvApplyAll() {
+    const raw = document.getElementById('rvMinConf').value.trim();
+    const pending = RV.items.filter(i => i.status === 'pending' && i.kind === 'fields').length;
+    if (!pending) { showToast(OQB.t('No pending items to apply'), 'info'); return; }
+    const msg = raw === '' ? OQB.t('Apply all {n} pending items?', {n: pending})
+        : OQB.t('Apply pending items with confidence of at least {pct}%?', {pct: raw});
+    if (!confirm(msg)) return;
+    const {data} = await rvPost(RV_CONFIG.urls.applyAll, raw === '' ? {} : {min_confidence: raw});
+    if (!data.success) { showToast(data.error || OQB.t('Could not apply'), 'danger'); return; }
+    const s = data.summary;
+    showToast(OQB.t('Applied {n}. Changed since proposed: {stale}. Errors: {errors}.', {n: s.applied, stale: s.stale.length, errors: s.errors.length}),
+        s.errors.length || s.stale.length ? 'warning' : 'success');
+    rvLoad(RV.currentId);
+}
+
+async function rvSetBatchStatus(status) {
+    const {data} = await rvPost(RV_CONFIG.urls.status, {status});
+    if (!data.success) { showToast(data.error || OQB.t('Could not change the status'), 'danger'); return; }
+    rvRenderBatch(data.batch);
+}
+
+// ------------------------------------------------------------ wiring
+
+window.oqbAfterQuestionEdit = () => { if (RV.currentId) rvRefreshItem(RV.currentId); };
+
+document.getElementById('rvFilter').addEventListener('change', e => {
+    RV.filter = e.target.value;
+    const visible = rvVisible();
+    if (!visible.find(i => i.id === RV.currentId)) rvShow(visible[0] ? visible[0].id : RV.currentId);
+    else rvShow(RV.currentId, {keepImages: true});
+});
+document.querySelectorAll('#rvSlotBtns [data-slot]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('#rvSlotBtns [data-slot]').forEach(x => x.classList.toggle('active', x === b));
+    RV.slot = b.dataset.slot;
+    rvRenderImages(rvCurrent());
+}));
+document.getElementById('rvVersion').addEventListener('change', e => {
+    RV.version = e.target.value;
+    rvRenderImages(rvCurrent());
+});
+
+document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.querySelector('.modal.show')) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+    const key = e.key.toLowerCase();
+    if (key === 'a') { e.preventDefault(); rvApply(); }
+    else if (key === 'r') { e.preventDefault(); rvReject(); }
+    else if (key === 's') { e.preventDefault(); rvSkip(); }
+    else if (key === 'e') { e.preventDefault(); rvEdit(); }
+    else if (key === 'arrowright' || key === 'j') { e.preventDefault(); rvStep(1); }
+    else if (key === 'arrowleft' || key === 'k') { e.preventDefault(); rvStep(-1); }
+});
+
+rvLoad(RV_CONFIG.startItem);
+</script>
+{% endblock %}

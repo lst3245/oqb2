@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{# Report a problem (/requests/new?ids=). Spec: docs/modules/requests.md #}
+
+{% block title %}{{ t('Report a problem - Question Bank') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 900px">
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-flag"></i> {{ t('Report a problem') }}</h2>
+        <a href="{{ url_for('support_requests.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> {{ t('All requests') }}
+        </a>
+    </div>
+    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i>
+        {{ t('Admins of the subject, super admins and the AI agent will read this and answer in the request. You will see their replies under Requests.') }}
+    </p>
+    <hr>
+
+    {% if dropped %}
+    <div class="alert alert-warning py-2 small">
+        {{ t('{n} selected questions were left out: you cannot report on their subject.', n=dropped) }}
+    </div>
+    {% endif %}
+
+    <form id="rqNewForm" onsubmit="rqSubmit(event)">
+        <div class="mb-3">
+            <label class="form-label fw-semibold" for="rqTitle">{{ t('Title') }}</label>
+            <input type="text" class="form-control" id="rqTitle" maxlength="200" required
+                   placeholder="{{ t('e.g. Wrong answer key, blurry image, missing topic') }}">
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label fw-semibold" for="rqCategory">{{ t('Kind of problem') }}</label>
+                <select class="form-select" id="rqCategory">
+                    {% for c in categories %}
+                    <option value="{{ c }}" {{ 'selected' if c == default_category }}>{{ t(category_labels[c]) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6" id="rqSubjectWrap" {% if questions %}style="display:none"{% endif %}>
+                <label class="form-label fw-semibold" for="rqSubject">{{ t('Subject (optional)') }}</label>
+                <select class="form-select" id="rqSubject">
+                    <option value="">{{ t('None: a general or app problem') }}</option>
+                    {% for s in subjects %}
+                    <option value="{{ s.id }}" {{ 'selected' if s.id == subject_id }}>{{ s.id }} · {{ tax_name(s) }}</option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">{{ t('With a subject, its admins see the request too. Without one, only super admins do.') }}</div>
+            </div>
+        </div>
+
+        <div class="mb-3" id="rqQuestionsWrap" {% if not questions %}style="display:none"{% endif %}>
+            <label class="form-label fw-semibold">{{ t('Questions') }} <span class="badge bg-secondary" id="rqQuestionCount">{{ questions|length }}</span></label>
+            <div class="d-flex flex-wrap gap-2" id="rqQuestions">
+                {% for q in questions %}
+                <span class="badge text-bg-light border rq-q" data-id="{{ q.id }}">
+                    <code>{{ q.qid }}</code>
+                    <button type="button" class="btn-close btn-close-sm ms-1" style="font-size: .6rem" aria-label="{{ t('Remove') }}" onclick="rqRemoveQuestion(this)"></button>
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-semibold">{{ t('What is wrong?') }}</label>
+            {% with composer_id='rqComposer', composer_rows=7 %}{% include 'partials/request_composer.html' %}{% endwith %}
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary" id="rqSubmitBtn"><i class="bi bi-send"></i> {{ t('Send report') }}</button>
+            <a href="{{ url_for('support_requests.index') }}" class="btn btn-outline-secondary">{{ t('Cancel') }}</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% include 'partials/request_composer_js.html' %}
+<script>
+const RQ_CREATE_URL = {{ url_for('support_requests.create') | tojson }};
+const rqComposer = oqbRequestComposer(document.getElementById('rqComposer'));
+
+function rqRemoveQuestion(btn) {
+    btn.closest('.rq-q').remove();
+    const left = document.querySelectorAll('#rqQuestions .rq-q').length;
+    document.getElementById('rqQuestionCount').textContent = left;
+    if (!left) {
+        document.getElementById('rqQuestionsWrap').style.display = 'none';
+        document.getElementById('rqSubjectWrap').style.display = '';
+        const cat = document.getElementById('rqCategory');
+        if (cat.value === 'question') cat.value = 'general';
+    }
+}
+
+async function rqSubmit(event) {
+    event.preventDefault();
+    const title = document.getElementById('rqTitle').value.trim();
+    if (!title) { rqComposer.error(OQB.t('Give the request a short title.')); return; }
+    if (rqComposer.isEmpty()) { rqComposer.error(OQB.t('Describe the problem.')); rqComposer.focus(); return; }
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('category', document.getElementById('rqCategory').value);
+    document.querySelectorAll('#rqQuestions .rq-q').forEach(el => fd.append('question_ids', el.dataset.id));
+    if (!fd.getAll('question_ids').length) fd.append('subject_id', document.getElementById('rqSubject').value);
+    rqComposer.appendTo(fd);
+    const btn = document.getElementById('rqSubmitBtn');
+    btn.disabled = true;
+    const {data} = await oqbRequestPost(RQ_CREATE_URL, fd);
+    if (data.success && data.url) {
+        window.location.href = data.url;
+        return;
+    }
+    btn.disabled = false;
+    rqComposer.error(data.error || data.message || OQB.t('Could not send the report.'));
+}
+</script>
+{% endblock %}

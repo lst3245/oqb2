@@ -16,6 +16,7 @@
 | `window.OQB_AI_TOOLS_ENABLED` | `AI_TOOLS_ENABLED` setting; gates AI buttons |
 | `window.OQB_VERSIONS`, `OQB_VERSION_LABELS`, `OQB_DEFAULT_VERSION_PRIORITY` | canonical version list from `app/utils.VERSIONS` via a context processor (also available in `viewer.html`). Build version UIs from these, never a literal list. `OQB_DEFAULT_VERSION_PRIORITY` is per request: the device's paper-language order (`i18n.paper_version_priority`), else `DEFAULT_VERSION_PRIORITY` |
 | `window.OQB_I18N` | Chinese UI catalogue (`{English: 中文}`), loaded from `/i18n/zh.js?v=<mtime>` in `<head>` **only** when the UI language is Chinese; read it through `OQB.t`, never directly |
+| `window.OQB_REPORT_URL`, `window.oqbReportIssue(ids)` | Requests report form URL, `null` when Requests is off or the user is below `REQUESTS_MIN_REPORT_LEVEL`. `oqbReportIssue(ids)` opens `/requests/new?ids=…` in a new tab (≤ 200 ids; none = general report). Show a Report button only when `OQB_REPORT_URL` is set ([../modules/requests.md](../modules/requests.md)) |
 
 ## UI language (`OQB.*`, `static/js/i18n.js`)
 
@@ -81,6 +82,8 @@ The server checks the `HX-Request` header and returns only `partials/question_li
 | `partials/admin_subject_picker.html` | Topics / Chapters subject `<select>` (`endpoint`, `subjects`, `subject`) |
 | `partials/taxonomy_admin_js.html` | `oqbTaxonomyAdmin(cfg)` for Topics / Chapters. Markup contract in its header: `.tax-name` (English, `rename`) and `.tax-name-zh[data-placeholder]` (Chinese, `rename-zh`, posts only `name_zh`; **no whitespace inside the span** — the placeholder uses `:empty`) |
 | `partials/language_menu.html` | navbar globe dropdown: Interface language (English / 中文) and Topic & chapter names (English / 中文 / Both) |
+| `partials/request_composer.html` + `partials/request_composer_js.html` | Requests chat composer (text + paste / drop / pick attachments, `data-max-files` / `data-max-mb` from the `REQUESTS_*` settings). `window.oqbRequestComposer(root)` returns `{text, isEmpty, appendTo(formData), clear, focus, error}`; `window.oqbRequestPost(url, FormData \| object)` posts (CSRF header from `csrf.js`) and resolves `{status, data}` with the `{success, error}` envelope, also on network errors and 413. Include the JS partial once per page |
+| Edit modal outside its usual hosts | `admin_review_batch.html` and `requests_thread.html` mount `partials/edit_question_modal.html` too and set `window.oqbAfterQuestionEdit` to refresh their own view (contract in [../modules/admin-questions.md](../modules/admin-questions.md)) |
 
 ## Bounding-box editor (`OQBBboxEditor`)
 

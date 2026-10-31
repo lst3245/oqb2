@@ -1,6 +1,6 @@
 ---
 description: Subject restore points - capture-before-save hooks on every taxonomy / question-tag writer, payload format, restore rules, pruning; how not to break the per-subject undo
-globs: app/admin.py,app/ai_tools.py,app/subject_ai_service.py,app/pdf_import.py,app/batch_edit.py,app/subject_snapshot.py,app/restore_points.py,app/models.py,app/__init__.py,app/question_split.py,app/question_combine.py,templates/admin_restore_points.html,tests/test_subject_snapshot.py
+globs: app/admin.py,app/ai_tools.py,app/subject_ai_service.py,app/pdf_import.py,app/batch_edit.py,app/subject_snapshot.py,app/restore_points.py,app/models.py,app/__init__.py,app/question_split.py,app/question_combine.py,app/library_ops_service.py,app/question_edit_service.py,app/review_service.py,app/agent_mcp_tools.py,templates/admin_restore_points.html,tests/test_subject_snapshot.py
 alwaysApply: false
 ---
 
@@ -12,7 +12,9 @@ The per-subject undo for tag / taxonomy mistakes. It only works if **every** wri
 - **Capture before the first mutation, in the same transaction, no own commit:** `subject_snapshot.capture(subject_id, '<action>')` (or `capture_many(ids, ...)`). The route's commit persists point + edit together. Capturing after mutating stores the new state and silently defeats the feature.
 - Snapshotted = `topics`, `subtopics`, `chapters`, `subchapters` (name, name_zh, sort_order, hidden, description, parent) + per question `major_topic_id`, `major_subtopic_id`, `chapter_id`, `subchapter_id`, `level`, `q_type`, `section`, `correct_percentage`, `marks`, minor topics, subtopics. A new route/service writing any of these **must** capture. A new tag column = append to `subject_snapshot.QUESTION_FIELDS` (+ `REF_KIND` if it references taxonomy) and keep `decode_state` tolerant of old payloads. A new taxonomy column = `TAXONOMY_FIELDS` + `read_state`; `decode_state` / `plan_restore` only touch keys a row carries (pre-2026-10-06 points have no topic / chapter `hidden`; pre-2026-10-17 points have no `name_zh`).
 - Hooked writers (keep in sync with the module doc table):
-  - `topic-edit` / `chapter-edit`: every add / edit / delete / toggle-hidden / reorder route for topics, subtopics, chapters, subchapters in `admin.py` (child rows resolve the subject via parent or `_subjects_of(model, ids)`).
+  - `topic-edit` / `chapter-edit`: every add / edit / delete / toggle-hidden / reorder route for topics, subtopics, chapters, subchapters in `admin.py` (child rows resolve the subject via parent or `_subjects_of(model, ids)`). Add / edit capture inside `library_ops_service.add_taxonomy_node` / `update_taxonomy_node` (shared with the agent, which passes `agent-edit`).
+  - `review-apply`: `review_service.apply_item` via `question_edit_service.apply_fields`; `apply_all` takes one point and passes `capture=False`.
+  - `agent-edit`: `/mcp` tools `update_question_fields`, `add_taxonomy_node`, `rename_taxonomy_node`.
   - `taxonomy-hint`: `subject_ai_service.set_description`.
   - `question-tags`: `update_question` — `read_state` right after loading the question, `capture_state` only if `question_tags_differ`.
   - `batch-update`: `batch_update_questions`, once per subject, only when a tag flag is set. `POST /questions/batch-update/preview` does not capture.

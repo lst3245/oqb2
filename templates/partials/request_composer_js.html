@@ -1,0 +1,125 @@
+{# Script for partials/request_composer.html. Include once per page, outside
+   any other <script>. #}
+<style>
+.rq-composer.rq-drop { outline: 2px dashed var(--bs-primary); outline-offset: 4px; border-radius: .375rem; }
+.rq-chip { background: var(--bs-light); max-width: 260px; }
+.rq-chip-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 3px; }
+.rq-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+</style>
+<script>
+(function () {
+    'use strict';
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    }
+
+    function sizeText(n) {
+        if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+        if (n >= 1024) return Math.round(n / 1024) + ' KB';
+        return n + ' B';
+    }
+
+    window.oqbRequestComposer = function (root) {
+        const maxFiles = parseInt(root.dataset.maxFiles || '10', 10);
+        const maxBytes = parseInt(root.dataset.maxMb || '20', 10) * 1048576;
+        const body = root.querySelector('.rq-body');
+        const list = root.querySelector('.rq-files');
+        const input = root.querySelector('.rq-file-input');
+        const errorBox = root.querySelector('.rq-error');
+        const files = [];
+
+        function error(text) { errorBox.textContent = text || ''; }
+
+        function render() {
+            list.innerHTML = '';
+            files.forEach((f, i) => {
+                const chip = document.createElement('div');
+                chip.className = 'rq-chip border rounded px-2 py-1 small d-flex align-items-center gap-2';
+                const thumb = (f.type || '').startsWith('image/')
+                    ? `<img class="rq-chip-thumb" src="${esc(URL.createObjectURL(f))}" alt="">`
+                    : '<i class="bi bi-file-earmark"></i>';
+                chip.innerHTML = `${thumb}<span class="rq-chip-name" title="${esc(f.name)}">${esc(f.name)}</span>
+                    <span class="text-muted">${esc(sizeText(f.size))}</span>
+                    <button type="button" class="btn-close btn-sm" aria-label="${esc(OQB.t('Remove'))}"></button>`;
+                chip.querySelector('button').addEventListener('click', () => { files.splice(i, 1); render(); });
+                list.appendChild(chip);
+            });
+        }
+
+        function add(fileList) {
+            error('');
+            for (const f of Array.from(fileList || [])) {
+                if (files.length >= maxFiles) { error(OQB.t('At most {count} files per message.', {count: maxFiles})); break; }
+                if (f.size > maxBytes) { error(OQB.t('{name} is larger than {mb} MB.', {name: f.name, mb: Math.round(maxBytes / 1048576)})); continue; }
+                if (!f.size) { error(OQB.t('{name} is empty.', {name: f.name})); continue; }
+                files.push(f);
+            }
+            render();
+        }
+
+        input.addEventListener('change', () => { add(input.files); input.value = ''; });
+
+        body.addEventListener('paste', (e) => {
+            const items = Array.from((e.clipboardData && e.clipboardData.items) || []).filter(it => it.kind === 'file');
+            if (!items.length) return;
+            const hasText = Array.from(e.clipboardData.types || []).includes('text/plain');
+            if (!hasText) e.preventDefault();
+            const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+            add(items.map((it, n) => {
+                const f = it.getAsFile();
+                if (!f) return null;
+                const ext = ((f.type || 'image/png').split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '');
+                const generic = !f.name || /^image\.\w+$/i.test(f.name);
+                return new File([f], generic ? `pasted-${stamp}-${n + 1}.${ext}` : f.name, {type: f.type});
+            }).filter(Boolean));
+        });
+
+        root.addEventListener('dragover', (e) => { e.preventDefault(); root.classList.add('rq-drop'); });
+        root.addEventListener('dragleave', (e) => { if (!root.contains(e.relatedTarget)) root.classList.remove('rq-drop'); });
+        root.addEventListener('drop', (e) => {
+            e.preventDefault();
+            root.classList.remove('rq-drop');
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) add(e.dataTransfer.files);
+        });
+
+        return {
+            error,
+            text() { return body.value; },
+            isEmpty() { return !body.value.trim() && !files.length; },
+            appendTo(fd) {
+                fd.append('body', body.value);
+                files.forEach(f => fd.append('files', f, f.name));
+            },
+            clear() { body.value = ''; files.length = 0; render(); error(''); },
+            focus() { body.focus(); },
+        };
+    };
+
+    // POST FormData / JSON and read the {success, error} envelope.
+    window.oqbRequestPost = async function (url, payload) {
+        const init = {method: 'POST', headers: {'Accept': 'application/json'}};
+        if (payload instanceof FormData) {
+            init.body = payload;
+        } else {
+            init.headers['Content-Type'] = 'application/json';
+            init.body = JSON.stringify(payload || {});
+        }
+        let response;
+        try {
+            response = await fetch(url, init);
+        } catch (e) {
+            return {status: 0, data: {success: false, error: OQB.t('Could not reach the server.')}};
+        }
+        let data;
+        try {
+            data = await response.json();
+        } catch (e) {
+            data = {success: false, error: response.status === 413
+                ? OQB.t('The files are too large to send.')
+                : OQB.t('The server did not answer properly (HTTP {status}).', {status: response.status})};
+        }
+        return {status: response.status, data};
+    };
+})();
+</script>

@@ -47,6 +47,7 @@ one or more super admins (users, subjects, settings, everything).
 - **The PDF import agent is a fixed state machine, not a free-running agent**: strict-JSON LLM steps, code applies every fix, doubts go to an attention list, the human commits ([ADR-010](docs/decisions/ADR-010-agent-layer-over-pdf-import-tools.md)). It is the experimental full-auto path; the normal path is Detect questions + Detect parts.
 - **PDF import crop width is one mode, not independent toggles**: printed frame > uniform width per side > the model's own edges (`auto` / `uniform` / `model`, default `auto`) ([ADR-014](docs/decisions/ADR-014-crop-width-mode.md)).
 - **Subject admins tune Auto Tag through a prompt layer, never the output contract**: notes / taxonomy hints / aggregated corrections are injected by `ai_tools.build_tag_prompt`; the `TAG_FORMAT` block is always re-attached server-side ([ADR-012](docs/decisions/ADR-012-subject-prompt-layer-over-fine-tuning.md)).
+- **The external AI agent changes OQB only through `/mcp` tools, and every write tool calls a service shared with the web routes** (`question_edit_service`, `review_service`, `support_requests_service`, `library_ops_service`); never give it a second path to the DB or `SOURCE_PATH`, and never add a delete tool ([ADR-021](docs/decisions/ADR-021-agent-mcp-endpoint.md), [ADR-022](docs/decisions/ADR-022-requests-review-and-agent-writes.md)).
 - **Every write to a subject's topic / chapter lists or its questions' tags captures a restore point first**: `subject_snapshot.capture(subject_id, action)` before the first mutation, same transaction (`capture_committed` for per-row-committing writers like Auto Tag). A writer without it silently breaks per-subject undo ([ADR-013](docs/decisions/ADR-013-subject-restore-points.md), [modules/subject-snapshots.md](docs/modules/subject-snapshots.md)).
 
 ## Area map
@@ -64,6 +65,9 @@ one or more super admins (users, subjects, settings, everything).
 | AI Prompts registry + variants | `admin_bp` `/admin/prompts` | `app/ai_prompts.py` | [modules/ai-prompts.md](docs/modules/ai-prompts.md) |
 | Subject AI tuning (per-subject Auto Tag instructions, taxonomy hints, preview, evaluate, correction log) | `subject_ai_bp` `/admin/subjects/<sid>/ai` | `app/subject_ai.py`, `app/subject_ai_service.py` | [modules/subject-ai.md](docs/modules/subject-ai.md) |
 | Subject restore points (auto snapshot before every tag / taxonomy save, manual snapshot, preview, per-subject restore) | `restore_points_bp` `/admin/restore-points` | `app/restore_points.py`, `app/subject_snapshot.py` | [modules/subject-snapshots.md](docs/modules/subject-snapshots.md) |
+| Review (batches of proposed tag / field changes from the agent or JSON import, worked one question at a time) | `review_bp` `/admin/review` | `app/review.py`, `app/review_service.py`, `app/question_edit_service.py` | [modules/review.md](docs/modules/review.md) |
+| Requests (issue reports as chat threads with attachments, statuses, agent approval requests, unread badge, Report buttons) | `support_requests_bp` `/requests` | `app/support_requests.py`, `app/support_requests_service.py` | [modules/requests.md](docs/modules/requests.md) |
+| AI agent endpoint (MCP tools for questions, requests, review, library writes; action log; playbook) | `agent_mcp_bp` `/mcp` | `app/agent_mcp.py`, `app/agent_mcp_tools.py`, `app/library_ops_service.py`, `docs/agents/PLAYBOOK.md` | [modules/agent-mcp.md](docs/modules/agent-mcp.md) |
 | PDF Batch Import | `admin_bp` `/admin/pdf-import` | `app/pdf_import.py`, `app/pdf_layout.py`, `app/pdf_cv_detect.py` | [modules/pdf-import.md](docs/modules/pdf-import.md) |
 | PDF Import AI agent | `admin_bp` `/admin/pdf-import/agent` | `app/pdf_agent.py` | [modules/pdf-agent.md](docs/modules/pdf-agent.md) |
 | Ingestion + Smart Import | `admin_bp` `/admin/import`, `cli.py` | `app/ingestor.py`, `app/smart_import.py` | [modules/ingestion.md](docs/modules/ingestion.md) |
@@ -102,6 +106,8 @@ one or more super admins (users, subjects, settings, everything).
 | [018](docs/decisions/ADR-018-sessions-csrf-and-headers.md) | Sessions, CSRF and headers: cookies `oqb_session` / `oqb_remember` (Secure per `SESSION_COOKIE_SECURE`), 12 h / 2 h limits from an `oqb_auth` session marker, opt-in remember-me only for unlinked accounts, `POST /logout`, one global session-bound CSRF token (header or form field, `CSRF_MODE` report → enforce, SSO token POST + feed exempt), `frame-ancestors 'none'` unless `SMS_EMBED_ENABLED` |
 | [019](docs/decisions/ADR-019-effective-level-authz.md) | One pure effective-level function (`app/authz.py`: max of local grant, SMS default level, mapped SMS subject levels, issuer cap) cached per request decides every subject permission; subject decorators fail closed; object routes check the object's subject before capture |
 | [020](docs/decisions/ADR-020-user-groups.md) | User groups add a per-subject role that members inherit; effective level is the highest of the personal grant, every group and SMS; groups never lower access, are not copied into personal grants or SMS, and never grant super admin |
+| [021](docs/decisions/ADR-021-agent-mcp-endpoint.md) | The AI agent reaches OQB only through `POST /mcp` (MCP over HTTP inside Flask): one `.env` bearer token with super-admin power + loopback IP allow-list, writes only through services, every write logged with a reason, approval is a playbook rule (soft gate), no delete tools |
+| [022](docs/decisions/ADR-022-requests-review-and-agent-writes.md) | Requests (chat threads with a status and an approval state) and Review (batches of stored `{field, old, new}` diffs applied through `question_edit_service`, which shares the Edit modal's field writer, stale check, decisions feed `tag_corrections`) are separate linked features; library writes live in `library_ops_service`, shared by admin routes and agent tools; module named `support_requests` |
 
 ## Documentation map
 
@@ -114,6 +120,7 @@ one or more super admins (users, subjects, settings, everything).
 | `docs/frontend/conventions.md` | Templates, partials, HTMX, shared JS helpers, SortableJS |
 | `docs/reference/*.md` | Domain facts: filename grammar, schema history, seeded data |
 | `docs/manuals/USER_MANUAL.md`, `docs/manuals/ADMIN_GUIDE.md` | Human-facing manuals (end users / operators) |
+| `docs/agents/PLAYBOOK.md` | Instructions for the **external** AI agent, served to it by `get_instructions` over `/mcp`; keep in sync with the tool registry |
 | `.cursor/rules/*.mdc` | Session bootloader: always-on orientation, docs-maintenance, safety; scoped per-area rules that point here |
 | `README.md` | Human quick start for someone cloning the repo |
 

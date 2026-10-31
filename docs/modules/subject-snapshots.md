@@ -13,6 +13,7 @@ Built after an incident where a bulk edit overwrote the tags of hundreds of MATC
 | `app/models.py` | `SubjectRestorePoint` |
 | `app/__init__.py` | Boot patch: `create checkfirst` the table, then `subject_snapshot.ensure_baselines()` |
 | `app/admin.py` | Capture hooks in every taxonomy / tag write route (list below); `_subjects_of(model, ids)` helper; `delete_subject` clears the subject's points |
+| `app/library_ops_service.py`, `app/question_edit_service.py` | Capture inside the shared services: taxonomy add / edit (`add_taxonomy_node`, `update_taxonomy_node`, action passed by the caller) and question field writes (`apply_fields(action=...)`, used by Review and the agent; the Edit modal keeps its own `question-tags` capture in `update_question`) |
 | `app/subject_ai_service.py` | `set_description` captures before changing a taxonomy hint |
 | `templates/admin_restore_points.html` | The page: subject picker, "Take snapshot" with note, points table (pin / unpin, preview / restore modal). Order is newest first; a pin does not move the row |
 | `templates/base.html`, `templates/admin_index.html`, `templates/admin_topics.html`, `templates/admin_chapters.html` | Admin dropdown → **Restore Points**; Content Management hub card; **Restore Points** header button on Topics / Chapters (same `subject_id`) |
@@ -64,8 +65,10 @@ All `@login_required`. Prefix `/admin`.
 
   | Action | Writer |
   |---|---|
-  | `topic-edit` | `add_topic`, `edit_topic`, `toggle_topic_hidden`, `delete_topic`, `add_subtopic`, `edit_subtopic`, `toggle_subtopic_hidden`, `delete_subtopic`, `reorder_topics`, `reorder_subtopics` |
-  | `chapter-edit` | `add_chapter`, `edit_chapter`, `toggle_chapter_hidden`, `delete_chapter`, `add_subchapter`, `edit_subchapter`, `toggle_subchapter_hidden`, `delete_subchapter`, `reorder_chapters`, `reorder_subchapters` |
+  | `topic-edit` | `add_topic`, `edit_topic`, `add_subtopic`, `edit_subtopic` (capture inside `library_ops_service.add_taxonomy_node` / `update_taxonomy_node`), `toggle_topic_hidden`, `delete_topic`, `toggle_subtopic_hidden`, `delete_subtopic`, `reorder_topics`, `reorder_subtopics` |
+  | `chapter-edit` | `add_chapter`, `edit_chapter`, `add_subchapter`, `edit_subchapter` (capture inside `library_ops_service`, as above), `toggle_chapter_hidden`, `delete_chapter`, `toggle_subchapter_hidden`, `delete_subchapter`, `reorder_chapters`, `reorder_subchapters` |
+  | `review-apply` | `review_service.apply_item` (through `question_edit_service.apply_fields`, only when a snapshotted field changes; note `Review #<batch>: <qid>`) and `review_service.apply_all` (one point for the whole run, items applied with `capture=False`) — [review.md](review.md) |
+  | `agent-edit` | Agent tools over `/mcp`: `update_question_fields` (`apply_fields`), `add_taxonomy_node`, `rename_taxonomy_node` (`library_ops_service`); note `"<agent> <tool> <target>: <reason>"` — [agent-mcp.md](agent-mcp.md) |
   | `taxonomy-hint` | `subject_ai_service.set_description` |
   | `question-tags` | `update_question` (edit modal) — state read first, point kept only if `question_tags_differ` (answer / comment-only saves add no point) |
   | `batch-update` | `batch_update_questions` (dashboard Bulk Edit) — one point per subject in the selection, only when a tag flag is set. The preview route does not capture |
@@ -77,7 +80,7 @@ All `@login_required`. Prefix `/admin`.
   | `baseline` | boot, for any subject with no point yet |
   | `before-restore` | `restore`, same transaction as the restore |
 
-- **Not hooked (by decision):** Split / Combine / create child / set parent (they move tags between a stem and its parts as part of a structural change), PDF import question creation (beyond the marks point above) and ingestion (create new questions; nothing existing to lose), `batch_mcq_ans` (assets only). Question deletes are not undone by a restore.
+- **Not hooked (by decision):** Split / Combine / create child / set parent (they move tags between a stem and its parts as part of a structural change; this includes the agent's `set_parent` and `rename_question`), PDF import question creation (beyond the marks point above) and ingestion (create new questions; nothing existing to lose), `batch_mcq_ans` (assets only). Question deletes are not undone by a restore.
 - **Retention:** after each capture, `prune` keeps the newest `KEEP_PER_SUBJECT` (100) points **plus** the first point of each UTC day within `DAILY_ANCHOR_DAYS` (30), so a busy day cannot push out "start of day", **plus every `pinned` row**. Pins do not use up the newest-100 budget. Restore passes `keep_ids={point being restored}`. Pruning only ever deletes rows of the same subject. `set_pinned` is the only writer of `pinned`; unpinning calls `prune` immediately.
 - **Pins do not survive subject delete.** `delete_for_subject` removes every row of that subject, pinned or not.
 - **Restore is subject-scoped and one transaction:** decode → read live → `gather_context` → `plan_restore` → abort on conflicts → `capture_state(live, 'before-restore')` → `apply_plan` (Core statements, every one filtered by `subject_id` / parent subject) → commit.

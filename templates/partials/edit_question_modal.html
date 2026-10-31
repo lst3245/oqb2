@@ -172,6 +172,12 @@ body.asset-thumbs-compact .oqb-img-parts .asset-part-toolbar .part-label small {
                         <i class="bi bi-chevron-right"></i>
                     </button>
                 </div>
+                {% if requests_can_report() %}
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="if (editQuestionData) oqbReportIssue([editQuestionData.id])"
+                        title="{{ t('Report a problem with this question (opens Requests in a new tab)') }}">
+                    <i class="bi bi-flag"></i>
+                </button>
+                {% endif %}
                 <button type="button" class="btn-close oqb-edit-modal-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
             </div>
             <div class="modal-body">

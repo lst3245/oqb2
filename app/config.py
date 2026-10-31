@@ -86,6 +86,25 @@ class Config:
     # SameSite=None; Secure; Partitioned). Needs HTTPS.
     SMS_EMBED_ENABLED = os.getenv('SMS_EMBED_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
 
+    # ---- Agent endpoint, Requests and Review (docs/modules/agent-mcp.md) --
+    # Env-only secret. Bearer token an AI agent sends to POST /mcp. Empty =
+    # the endpoint answers 404 even when AGENT_MCP_ENABLED is on.
+    AGENT_API_TOKEN = os.getenv('AGENT_API_TOKEN', '').strip()
+    # [tunable] Master switch for POST /mcp.
+    AGENT_MCP_ENABLED = os.getenv('AGENT_MCP_ENABLED', '0').strip().lower() in ('1', 'true', 'yes', 'on')
+    # [tunable] Client addresses allowed to call /mcp (comma list of IPs or
+    # CIDR networks; * = any). Default: this computer only.
+    AGENT_MCP_ALLOWED_IPS = os.getenv('AGENT_MCP_ALLOWED_IPS', '127.0.0.1,::1').strip()
+    # [tunable] Name shown on agent messages when the agent sends none.
+    AGENT_DEFAULT_NAME = os.getenv('AGENT_DEFAULT_NAME', 'AI agent').strip() or 'AI agent'
+    # [tunable] Issue reports (Requests) on / off.
+    REQUESTS_ENABLED = os.getenv('REQUESTS_ENABLED', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+    # [tunable] Lowest subject level that may open a report: viewer / user / admin.
+    REQUESTS_MIN_REPORT_LEVEL = os.getenv('REQUESTS_MIN_REPORT_LEVEL', 'user').strip().lower()
+    # [tunable] Attachment limits per file (MB) and per message.
+    REQUESTS_MAX_ATTACHMENT_MB = int(os.getenv('REQUESTS_MAX_ATTACHMENT_MB', '20'))
+    REQUESTS_MAX_ATTACHMENTS_PER_MESSAGE = int(os.getenv('REQUESTS_MAX_ATTACHMENTS_PER_MESSAGE', '10'))
+
     # Database settings
     DB_HOST = os.getenv('DB_HOST', 'localhost')
     DB_USER = os.getenv('DB_USER', 'root')
@@ -120,6 +139,9 @@ class Config:
     SHARED_PATH = os.getenv('SHARED_PATH', os.path.join(STORAGE_PATH, 'Shared'))
     SYSTEM_PATH = os.getenv('SYSTEM_PATH', os.path.join(STORAGE_PATH, 'System'))
     USER_PATH = os.getenv('USER_PATH', os.path.join(STORAGE_PATH, 'User'))
+    # Requests — attachments of issue reports, one folder per request
+    # (permanent, unlike System/). Served only through /requests routes.
+    REQUESTS_PATH = os.getenv('REQUESTS_PATH', os.path.join(STORAGE_PATH, 'Requests'))
 
     # OUTPUT_PATH is now a LEGACY base, kept for backward compatibility: it is
     # the fallback location for generated files created before the per-user

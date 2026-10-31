@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{# Requests list (/requests). Spec: docs/modules/requests.md #}
+
+{% block title %}{{ t('Requests - Question Bank') }}{% endblock %}
+
+{% macro utc(dt) %}{{ dt.strftime('%Y-%m-%dT%H:%M:%SZ') if dt else '' }}{% endmacro %}
+
+{% block content %}
+{% set tab_labels = {'mine': t('My requests'), 'queue': t('My subjects'), 'all': t('All requests')} %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-chat-left-text"></i> {{ t('Requests') }}</h2>
+        <div class="d-flex align-items-center gap-2">
+            <form method="post" action="{{ url_for('support_requests.mark_all_read') }}" class="m-0">
+                {{ csrf_field() }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-check2-all"></i> {{ t('Mark all read') }}</button>
+            </form>
+            {% if can_report %}
+            <a href="{{ url_for('support_requests.new') }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-flag"></i> {{ t('Report a problem') }}
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i>
+        {{ t('Problems reported with questions or the app. Admins of the subject and the AI agent answer here; you can reply, add pictures and files, and close your request when it is solved.') }}
+    </p>
+
+    <ul class="nav nav-tabs mb-3">
+        {% for tb in tabs %}
+        <li class="nav-item">
+            <a class="nav-link {{ 'active' if tb == tab }}" href="{{ url_for('support_requests.index', tab=tb, status=status, category=category or None, q=q or None) }}">{{ tab_labels[tb] }}</a>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <select name="status" class="form-select form-select-sm" style="max-width: 220px" onchange="this.form.submit()">
+            <option value="active" {{ 'selected' if status == 'active' }}>{{ t('Not finished') }}</option>
+            {% if 'queue' in tabs %}<option value="needs_agent" {{ 'selected' if status == 'needs_agent' }}>{{ t('Waiting for the agent') }}</option>{% endif %}
+            {% for s in statuses %}
+            <option value="{{ s }}" {{ 'selected' if status == s }}>{{ t(status_labels[s]) }}</option>
+            {% endfor %}
+            <option value="all" {{ 'selected' if status == 'all' }}>{{ t('All') }}</option>
+        </select>
+        <select name="category" class="form-select form-select-sm" style="max-width: 220px" onchange="this.form.submit()">
+            <option value="">{{ t('Any kind') }}</option>
+            {% for c in categories %}
+            <option value="{{ c }}" {{ 'selected' if category == c }}>{{ t(category_labels[c]) }}</option>
+            {% endfor %}
+        </select>
+        <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width: 240px"
+               placeholder="{{ t('Title, QID or #number') }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i></button>
+    </form>
+
+    {% if not rows %}
+    <p class="text-muted">{{ t('No requests here.') }}</p>
+    {% else %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>{{ t('Title') }}</th>
+                    <th>{{ t('Questions') }}</th>
+                    <th>{{ t('Reported by') }}</th>
+                    <th>{{ t('Status') }}</th>
+                    <th>{{ t('Last activity') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                {% set qs = links.get(r.id, []) %}
+                <tr class="{{ 'fw-semibold' if r.id in unread }}">
+                    <td class="text-muted">{{ r.id }}</td>
+                    <td>
+                        {% if r.id in unread %}<span class="badge rounded-pill bg-danger me-1" title="{{ t('New messages') }}">&nbsp;</span>{% endif %}
+                        <a href="{{ url_for('support_requests.thread', request_id=r.id) }}">{{ r.title }}</a>
+                        <div class="small text-muted fw-normal">
+                            {{ t(category_labels.get(r.category, 'General')) }}{% if r.subject_id %} · {{ r.subject_id }}{% endif %}
+                        </div>
+                    </td>
+                    <td class="small fw-normal">
+                        {% for l in qs[:3] %}<code>{{ l.qid }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+                        {% if qs|length > 3 %}<span class="text-muted">{{ t('+{n} more', n=qs|length - 3) }}</span>{% endif %}
+                    </td>
+                    <td class="small fw-normal">{{ names.get(r.reporter_id) or '—' }}</td>
+                    <td>
+                        <span class="badge {{ status_badges.get(r.status, 'bg-secondary') }}">{{ t(status_labels.get(r.status, 'Open')) }}</span>
+                        {% if 'queue' in tabs and r.status in ('open', 'in_progress', 'approved') and r.last_actor_kind in ('user', 'admin') %}
+                        <i class="bi bi-robot text-muted" title="{{ t('Waiting for the agent') }}"></i>
+                        {% endif %}
+                    </td>
+                    <td class="small text-nowrap fw-normal" data-utc="{{ utc(r.last_message_at) }}"></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('[data-utc]').forEach(el => { el.textContent = window.oqbFormatLocalTime(el.dataset.utc); });
+</script>
+{% endblock %}

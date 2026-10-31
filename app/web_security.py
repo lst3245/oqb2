@@ -43,7 +43,7 @@ ABSOLUTE_SECONDS = 12 * 3600
 IDLE_SECONDS = 2 * 3600
 MAX_REMEMBER_DAYS = 30
 SEEN_STEP_SECONDS = 60  # 'seen' is rewritten at most once a minute
-SESSION_EXEMPT_ENDPOINTS = frozenset({'static', 'sso.directory_feed'})
+SESSION_EXEMPT_ENDPOINTS = frozenset({'static', 'sso.directory_feed', 'agent_mcp.mcp'})
 
 ENDED_MESSAGE = 'Your session has ended. Please sign in again.'
 

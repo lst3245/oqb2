@@ -231,10 +231,14 @@ class CatalogueTests(unittest.TestCase):
 
     def test_dynamic_keys_are_translated(self):
         """Strings the UI passes to t()/OQB.t() through a variable."""
+        from app import question_edit_service as qes
+        from app import support_requests_service as srs
         from app.ai_prompts import PROMPTS_REGISTRY
         from app.settings import REGISTRY
         from app.utils import GROUP_NONE_LABELS, VERSION_LABELS
         texts = set(VERSION_LABELS.values()) | set(GROUP_NONE_LABELS.values())
+        texts |= set(srs.STATUS_LABELS.values()) | set(srs.CATEGORY_LABELS.values())
+        texts |= {spec['label'] for spec in qes.FIELDS.values()}
         for spec in REGISTRY.values():
             texts |= {spec['group'], spec['label'], spec['help']}
         for spec in PROMPTS_REGISTRY.values():

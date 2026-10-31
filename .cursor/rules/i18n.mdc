@@ -1,6 +1,6 @@
 ---
 description: Bilingual UI (English / HK Traditional Chinese) - t() / OQB.t() catalogue, language cookies, taxonomy name_zh display and matching, document heading language
-globs: templates/**,static/js/**,app/i18n.py,app/translations/**,app/admin.py,app/auth.py,app/dashboard.py,app/generator.py,app/utils.py,app/batch_edit.py,app/ai_prompts.py,app/ai_tools.py,app/subject_ai_service.py,tests/test_i18n.py
+globs: templates/**,static/js/**,app/i18n.py,app/translations/**,app/admin.py,app/auth.py,app/dashboard.py,app/generator.py,app/utils.py,app/batch_edit.py,app/ai_prompts.py,app/ai_tools.py,app/subject_ai_service.py,app/review*.py,app/support_requests*.py,app/question_edit_service.py,app/library_ops_service.py,tests/test_i18n.py
 alwaysApply: false
 ---
 

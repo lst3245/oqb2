@@ -32,6 +32,7 @@ Then code. Do not scan the whole repo when the orientation files already say whe
 - **Dashboard Selection is independent of Filter** (ADR-008).
 - **UI language is not the paper version** (ADR-017). Teacher-facing text goes through `t()` / `OQB.t()` + `app/translations/zh_Hant.json`; taxonomy `name` is English and `name_zh` optional — display via `i18n.display_name`, match via `i18n.build_name_index`, store ids. See `i18n.mdc`.
 - **Word COM only through `app/word_com.py`** (global lock, single WINWORD per session).
+- **The external AI agent writes only through `/mcp` tools that call the same services as the routes** (`question_edit_service`, `library_ops_service`, `review_service`, `support_requests_service`); no delete tools; `AGENT_API_TOKEN` is a super-admin secret in `.env`. See `agent-mcp.mdc` (ADR-021, ADR-022).
 - **Restore points before tag / taxonomy writes** (ADR-013). Any code that changes a subject's topics / subtopics / chapters / subchapters or a question's tags calls `subject_snapshot.capture*` *before* mutating. See `subject-snapshots.mdc` / `docs/modules/subject-snapshots.md`.
 
 ## Runtime on this host (exact)

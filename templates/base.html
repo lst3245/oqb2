@@ -508,12 +508,29 @@
                                 {% endif %}
                             </ul>
                         </li>
+                        {% if requests_enabled() %}
+                        {% set _requests_unread = requests_unread_count() %}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                <i class="bi bi-chat-left-text"></i> {{ t('Requests') }}
+                                {% if _requests_unread %}<span class="badge rounded-pill bg-danger" id="nav-requests-unread" title="{{ t('Requests with new messages') }}">{{ _requests_unread }}</span>{% endif %}
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="{{ url_for('support_requests.index') }}"><i class="bi bi-inbox"></i> {{ t('Requests') }}{% if _requests_unread %} <span class="badge rounded-pill bg-danger">{{ _requests_unread }}</span>{% endif %}</a></li>
+                                {% if requests_can_report() %}
+                                <li><a class="dropdown-item" href="{{ url_for('support_requests.new') }}"><i class="bi bi-flag"></i> {{ t('Report a problem') }}</a></li>
+                                {% endif %}
+                            </ul>
+                        </li>
+                        {% endif %}
                         {% if current_user.is_super_admin or current_user.has_any_admin_access() %}
                         {% set _sms_alerts = sms_alert_count() if current_user.is_super_admin else 0 %}
+                        {% set _review_pending = review_pending_count() %}
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                                 <i class="bi bi-gear"></i> {{ t('Admin') }}
                                 {% if _sms_alerts %}<span class="badge rounded-pill bg-danger" id="nav-sms-alerts" title="{{ t('SMS sign-in alerts') }}">{{ _sms_alerts }}</span>{% endif %}
+                                {% if _review_pending %}<span class="badge rounded-pill bg-warning text-dark" id="nav-review-pending" title="{{ t('Review items waiting') }}">{{ _review_pending }}</span>{% endif %}
                             </a>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="{{ url_for('admin.index') }}"><i class="bi bi-speedometer2"></i> {{ t('Admin Panel') }}</a></li>
@@ -523,6 +540,7 @@
                                 <li><a class="dropdown-item" href="{{ url_for('admin.chapters') }}"><i class="bi bi-book"></i> {{ t('Manage Chapters') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('subject_ai.index') }}"><i class="bi bi-magic"></i> {{ t('AI Tagging Tuning') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('restore_points.page') }}"><i class="bi bi-clock-history"></i> {{ t('Restore Points') }}</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('review.index') }}"><i class="bi bi-ui-checks"></i> {{ t('Review') }}{% if _review_pending %} <span class="badge rounded-pill bg-warning text-dark">{{ _review_pending }}</span>{% endif %}</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.export_import') }}"><i class="bi bi-arrow-left-right"></i> {{ t('Export / Import') }}</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('admin.smart_import_page') }}"><i class="bi bi-magic"></i> {{ t('Smart Import') }}</a></li>
@@ -943,6 +961,21 @@
         window.OQB_VERSIONS = {{ OQB_VERSIONS | tojson }};
         window.OQB_VERSION_LABELS = {{ OQB_VERSION_LABELS | tojson }};
         window.OQB_DEFAULT_VERSION_PRIORITY = {{ OQB_DEFAULT_VERSION_PRIORITY | tojson }};
+
+        // Requests: open the report form for these question ids in a new tab.
+        // OQB_REPORT_URL is null when Requests is off or the user may not report.
+        window.OQB_REPORT_URL = {{ (url_for('support_requests.new') if requests_can_report() else none) | tojson }};
+        window.oqbReportIssue = function(ids) {
+            if (!window.OQB_REPORT_URL) return;
+            ids = Array.from(ids || []).map(String).filter(Boolean);
+            if (ids.length > 200) {
+                alert(OQB.t('One report can link at most {count} questions.', {count: 200}));
+                return;
+            }
+            const url = new URL(window.OQB_REPORT_URL, window.location.origin);
+            if (ids.length) url.searchParams.set('ids', ids.join(','));
+            window.open(url.toString(), '_blank');
+        };
 
         function _oqbBuildThumbHtml(thumbUrl, filename, downloadUrl, assetId, questionId) {
             const fname = filename ? filename.replace(/[<>&"']/g, '') : OQB.t('Word document');

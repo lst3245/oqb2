@@ -16,6 +16,9 @@
 | `pwa_bp` | `app/pwa.py` | `/` | `/manifest.webmanifest`, `/sw.js` |
 | `subject_ai_bp` | `app/subject_ai.py` | `/admin` | `/subject-ai`, `/subjects/<sid>/ai/*`, `/questions/<id>/ai/tag-corrections` |
 | `restore_points_bp` | `app/restore_points.py` | `/admin` | `/restore-points`, `/subjects/<sid>/restore-points/capture`, `/restore-points/<id>/pin|preview|restore` |
+| `review_bp` | `app/review.py` | `/admin/review` | Review batches: list, import, one-by-one page, item apply / reject / skip / reopen, apply-all, batch status ([review.md](../modules/review.md)) |
+| `support_requests_bp` | `app/support_requests.py` | `/requests` | Requests: list, report form, thread, messages, status, approval, attachments ([requests.md](../modules/requests.md)) |
+| `agent_mcp_bp` | `app/agent_mcp.py` | `/` | `POST /mcp` only — the AI agent's JSON-RPC endpoint ([agent-mcp.md](../modules/agent-mcp.md)) |
 
 Register new blueprints in `create_app()`; keep one blueprint per area. Prefer adding a new module over growing `app/admin.py`.
 
@@ -44,7 +47,7 @@ def something(question_id):
 ## CSRF (`app/csrf.py`, ADR-018)
 
 - `csrf.protect` (`before_request`) checks **every** POST / PUT / PATCH / DELETE: `X-CSRF-Token` header, else the `csrf_token` form field (urlencoded / multipart only; a JSON body needs the header), against `session['_csrf']` with `hmac.compare_digest`. Requests that match no route are left to routing (404 / 405).
-- Exemptions are endpoint names in `csrf.EXEMPT_ENDPOINTS` — only `sso.token_post` (Origin check) and `sso.directory_feed` (signed, cookie-less). Do not add one for convenience; a request that can never carry a token gets a redirect in `REDIRECT_ON_FAILURE` instead (the Markup Web Share Target fallback).
+- Exemptions are endpoint names in `csrf.EXEMPT_ENDPOINTS` — only `sso.token_post` (Origin check), `sso.directory_feed` (signed, cookie-less) and `agent_mcp.mcp` (bearer token, IP allow-list, cookie-less; [../modules/agent-mcp.md](../modules/agent-mcp.md)). Do not add one for convenience; a request that can never carry a token gets a redirect in `REDIRECT_ON_FAILURE` instead (the Markup Web Share Target fallback).
 - Failure with `CSRF_MODE=enforce`: `authz.wants_json()` requests get 400 `{"success": false, "error": "csrf_failed", "message"}`; HTML posts get the 400 page `templates/csrf_failed.html`; `auth.login` re-renders with a flash. Both modes log `csrf_failed mode=… endpoint=… path=…` at WARNING (never the token); `report` then lets the request through.
 - Templates: `{{ csrf_field() }}` inside every `<form method="post">`, `{{ csrf_token() }}` for the meta tag. The client side is `static/js/csrf.js` ([../frontend/conventions.md](../frontend/conventions.md)), so `fetch` / XHR / htmx calls need no change.
 - Rotate with `csrf.rotate()` whenever the signed-in identity changes (login, SMS sign-in, logout, forced session end).
@@ -69,6 +72,23 @@ subject_snapshot.capture_committed(subject_ids, 'auto-tag')   # writers that com
 ```
 
 Capture once per subject per request (never per row), use an existing action key or add one to `ACTION_LABELS`, and add the writer to the table in [../modules/subject-snapshots.md](../modules/subject-snapshots.md).
+
+## Writes shared by routes and the AI agent
+
+A write that both a web route and an `/mcp` tool perform lives in one service, and both call it; neither re-implements it:
+
+| Write | Service | Callers |
+|---|---|---|
+| Question fields (tags, level, type, section, marks, answer, comment, …) | `question_edit_service.normalize_changes` → `apply_fields(question, changes, taxonomy, action=, note=, confirm_stale=, capture=)`, which ends in `write_values` | Review `apply_item`, agent `update_question_fields`; the Edit modal's `update_question` keeps its own form parsing and `question-tags` capture and calls `write_values` directly |
+| Rename QID, set parent, asset upload / replace, taxonomy add / edit | `library_ops_service` (`OpError(message, status)`) | admin routes, agent tools |
+| Review batches / items | `review_service` | `/admin/review`, agent review tools |
+| Request threads | `support_requests_service` | `/requests`, agent request tools |
+
+These services leave the commit to the caller (exception: `library_ops_service.replace_images`, whose `replace_img_assets` commits). After the commit the caller runs the post-commit hooks: `library_ops_service.after_upload` (thumbnails) and `review_service.log_corrections` (commits on its own, never raises).
+
+## AI agent endpoint (MCP over HTTP)
+
+`POST /mcp` speaks JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`, `resources/*`, `ping`; notifications answer 202). Tools register with `@agent_mcp.tool(name, description, schema, title=, writes=, thread_note=)`, take `(args, ctx)`, return JSON-able data, refuse with `ToolError`. The transport commits after the handler, rolls back on any error, logs each `writes=True` call to `agent_action_log`, and returns failures as `isError` tool results. Rules and gotchas: [../modules/agent-mcp.md](../modules/agent-mcp.md), ADR-021.
 
 ## Response envelopes
 

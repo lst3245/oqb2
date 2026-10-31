@@ -123,6 +123,20 @@ def _choice_validator(*choices: str):
     return _check
 
 
+def _ip_list_validator(v):
+    """Comma list of IP addresses / CIDR networks, or ``*``."""
+    import ipaddress
+    items = [p.strip() for p in str(v or '').split(',') if p.strip()]
+    for item in items:
+        if item == '*':
+            continue
+        try:
+            ipaddress.ip_network(item, strict=False)
+        except ValueError:
+            raise ValueError(f'not an IP address or network: {item}') from None
+    return v
+
+
 # ---------------------------------------------------------------------------
 # REGISTRY of tunables
 # ---------------------------------------------------------------------------
@@ -634,6 +648,50 @@ REGISTRY: 'OrderedDict[str, _Spec]' = OrderedDict([
         label='Remember me (days)',
         help='How long "Remember me" keeps an OQB password account signed in. Never offered to accounts linked to SMS. 0 hides the option. Default 30, at most 30.',
         min=0, max=30,
+    )),
+
+    # Agent endpoint (docs/modules/agent-mcp.md, ADR-021). The token itself
+    # is AGENT_API_TOKEN in .env, never a setting.
+    ('AGENT_MCP_ENABLED', _spec(
+        'AGENT_MCP_ENABLED', 'bool', group='AI agent',
+        label='Agent endpoint (/mcp)',
+        help='Let an AI agent use OQB through the MCP endpoint POST /mcp: read questions and images, answer requests, create review lists and make library changes. Also needs AGENT_API_TOKEN in .env. Off: the endpoint answers 404.',
+    )),
+    ('AGENT_MCP_ALLOWED_IPS', _spec(
+        'AGENT_MCP_ALLOWED_IPS', 'string', group='AI agent',
+        label='Agent endpoint: allowed addresses',
+        help='Comma-separated client IP addresses or networks (e.g. 192.168.1.0/24) that may call /mcp; * allows any address. Default 127.0.0.1,::1 (this computer only).',
+        validator=_ip_list_validator,
+    )),
+    ('AGENT_DEFAULT_NAME', _spec(
+        'AGENT_DEFAULT_NAME', 'string', group='AI agent',
+        label='Agent display name',
+        help='Name shown on agent replies and review lists when the agent does not send its own name. Default "AI agent".',
+    )),
+
+    # Requests and Review (docs/modules/requests.md, docs/modules/review.md)
+    ('REQUESTS_ENABLED', _spec(
+        'REQUESTS_ENABLED', 'bool', group='Requests and Review',
+        label='Issue reports (Requests)',
+        help='Let users report problems with questions or the app, with text and attachments, and talk with admins and the AI agent in a thread. Off: the Requests pages answer 404 and the Report buttons are hidden.',
+    )),
+    ('REQUESTS_MIN_REPORT_LEVEL', _spec(
+        'REQUESTS_MIN_REPORT_LEVEL', 'string', group='Requests and Review',
+        label='Who can report issues',
+        help='Lowest access level on a subject that may open a report: viewer, user or admin. General reports (no question) need this level on at least one subject. Default user.',
+        validator=_choice_validator('viewer', 'user', 'admin'),
+    )),
+    ('REQUESTS_MAX_ATTACHMENT_MB', _spec(
+        'REQUESTS_MAX_ATTACHMENT_MB', 'int', group='Requests and Review',
+        label='Largest attachment (MB)',
+        help='Largest single file that can be attached to a request message. Default 20.',
+        min=1, max=200,
+    )),
+    ('REQUESTS_MAX_ATTACHMENTS_PER_MESSAGE', _spec(
+        'REQUESTS_MAX_ATTACHMENTS_PER_MESSAGE', 'int', group='Requests and Review',
+        label='Attachments per message',
+        help='Most files one request message can carry. Default 10.',
+        min=1, max=50,
     )),
 ])
 

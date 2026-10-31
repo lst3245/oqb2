@@ -18,6 +18,8 @@ Layout (defaults; each child overridable via its own env var):
       User/
         <username>/               personal home (full CRUD by owner)
           generated/              relocated generated documents
+      Requests/
+        <request_id>/             issue-report attachments (permanent)
 
 Everything reads from ``current_app.config`` so DB-backed System Settings and
 ``.env`` overrides are both honoured.
@@ -85,6 +87,24 @@ def user_path() -> str:
 def output_path() -> str:
     """Legacy generated-files base (fallback for un-migrated files)."""
     return os.path.abspath(current_app.config['OUTPUT_PATH'])
+
+
+def requests_path() -> str:
+    """Issue-report attachments (``Requests/<request_id>/``). Permanent data,
+    not a cache: never cleared with ``System/``."""
+    base = current_app.config.get('REQUESTS_PATH') or os.path.join(storage_path(), 'Requests')
+    return os.path.abspath(base)
+
+
+def request_dir(request_id) -> str | None:
+    """Folder of one request's attachments (not auto-created), or ``None``."""
+    try:
+        rid = int(request_id)
+    except (TypeError, ValueError):
+        return None
+    if rid <= 0:
+        return None
+    return safe_join(requests_path(), str(rid))
 
 
 # ---------------------------------------------------------------------------
@@ -159,11 +179,11 @@ def shared_archive_dir() -> str:
 
 def ensure_storage_tree() -> None:
     """Create the base Storage tree (Shared / System / System/doc_thumbnails /
-    User). Best-effort: failures are swallowed so a misconfigured path during
+    User / Requests). Best-effort: failures are swallowed so a misconfigured path during
     early boot does not crash the app (paths are validated again on use)."""
     try:
         for path in (storage_path(), shared_path(), system_path(), user_path(),
-                     os.path.join(system_path(), 'doc_thumbnails')):
+                     os.path.join(system_path(), 'doc_thumbnails'), requests_path()):
             os.makedirs(path, exist_ok=True)
     except OSError:
         pass

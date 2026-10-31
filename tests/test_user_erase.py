@@ -75,10 +75,11 @@ class EraseCase(DbTestCase):
         that must survive. Returns a dict of ids / paths."""
         from app import db
         from app.models import (AuthAuditLog, ExternalIdentity, FileSection, FileShare, GeneratedFile,
-                                PromptOverride, PromptVariant, Question, SavedFilter,
-                                SavedGenerationProfile, SavedQuestionSet, SmsSnapshot, SmsSubjectMap,
-                                SmsTrustIssuer, SmsTrustKey, SubjectPromptNote, SubjectRestorePoint,
-                                SystemSetting, TagCorrection, UserSmsLevel)
+                                PromptOverride, PromptVariant, Question, ReviewBatch, ReviewItem,
+                                SavedFilter, SavedGenerationProfile, SavedQuestionSet, SmsSnapshot,
+                                SmsSubjectMap, SmsTrustIssuer, SmsTrustKey, SubjectPromptNote,
+                                SubjectRestorePoint, SupportRequest, SupportRequestMessage,
+                                SupportRequestRead, SystemSetting, TagCorrection, UserSmsLevel)
         uid, oid, nid = self.users[name], self.users[other], self.users['nogrants']
         s_latest = self.add(FileSection(user_id=uid, name='Latest', is_default=True))
         s_extra = self.add(FileSection(user_id=uid, name='Exams'))
@@ -137,6 +138,11 @@ class EraseCase(DbTestCase):
         issuer = self.add(SmsTrustIssuer(issuer=ISSUER, updated_by_user_id=uid))
         self.add(SmsTrustKey(issuer_id=issuer.id, kid='k1', public_pem='-', fingerprint='f' * 64,
                              pinned_by_user_id=uid))
+        batch = self.add(ReviewBatch(subject_id='MATC', title='b', source='import', created_by=uid))
+        self.add(ReviewItem(batch_id=batch.id, qid='MATC_X', decided_by=uid))
+        req = self.add(SupportRequest(title='r', reporter_id=uid, closed_by=uid))
+        self.add(SupportRequestMessage(request_id=req.id, author_kind='user', author_user_id=uid),
+                 SupportRequestRead(user_id=uid, request_id=req.id))
         q = db.session.get(Question, self.questions['MATC'])
         q.verified_by = uid
         self.add(AuthAuditLog(event='password_login', outcome='ok', user_id=uid),
@@ -176,7 +182,7 @@ class FullEraseTests(EraseCase):
     def test_erase_removes_everything_and_keeps_the_rest(self):
         from app import db
         from app.models import (AuthAuditLog, ExternalIdentity, FileShare, GeneratedFile, Question,
-                                SavedFilter, SubjectRestorePoint, User)
+                                SavedFilter, SubjectRestorePoint, SupportRequest, User)
         s = self.seed_victim()
         resp = self.post_delete(s['uid'])
         self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True)[:400])
@@ -198,8 +204,11 @@ class FullEraseTests(EraseCase):
                     'subject_prompt_notes.updated_by', 'prompt_variants.updated_by', 'questions.verified_by',
                     'subject_restore_points.user_id', 'external_identities.linked_by_user_id',
                     'sms_snapshots.decided_by_user_id', 'sms_subject_map.confirmed_by_user_id',
-                    'sms_trust_issuers.updated_by_user_id', 'sms_trust_keys.pinned_by_user_id'):
+                    'sms_trust_issuers.updated_by_user_id', 'sms_trust_keys.pinned_by_user_id',
+                    'review_batches.created_by', 'review_items.decided_by', 'support_requests.reporter_id',
+                    'support_requests.closed_by', 'support_request_messages.author_user_id'):
             self.assertEqual(body['nulled'][key], 1, key)
+        self.assertEqual(c['request_reads'], 1)
 
         # files and the user's folder are gone; other users' files stay
         for path in s['paths'].values():
@@ -218,6 +227,7 @@ class FullEraseTests(EraseCase):
         other_link = ExternalIdentity.query.filter_by(user_id=s['oid']).one()
         self.assertIsNone(other_link.linked_by_user_id)
         self.assertEqual(SubjectRestorePoint.query.count(), 1)
+        self.assertEqual(SupportRequest.query.filter_by(title='r').count(), 1)
         self.assertIsNone(db.session.get(Question, self.questions['MATC']).verified_by)
         self.assertIsNotNone(db.session.get(User, s['oid']))
 

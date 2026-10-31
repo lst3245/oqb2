@@ -34,17 +34,22 @@ D:\oqb2\
     pdf_agent.py         PDF import AI agent: outline → locate → split → verify state machine over pdf_import (ADR-010)
     subject_ai.py subject_ai_service.py   per-subject Auto Tag tuning: blueprint + service (ADR-012)
     subject_snapshot.py restore_points.py per-subject restore points: capture/plan/restore service + blueprint (ADR-013)
+    question_edit_service.py library_ops_service.py   question field writer + rename / set parent / assets / taxonomy writes shared by routes and the agent (ADR-022)
+    review.py review_service.py           Review: proposed-change batches, one-by-one apply / reject (ADR-022)
+    support_requests.py support_requests_service.py   Requests: issue threads, attachments, approval gate (ADR-022)
+    agent_mcp.py agent_mcp_tools.py       POST /mcp for the external AI agent: JSON-RPC transport + tool registry (ADR-021)
+  scripts/oqb_mcp_stdio.py   optional stdio bridge from an MCP client to /mcp
   templates/             Jinja2; base.html layout; admin_*.html; partials/ for HTMX + shared modals
   static/                img/ (logos), markup/ (PWA manifest, sw.js, icon); css/ js/ are empty placeholders
   resources/mcq_answer_img/{A,B,C,D}.png   source PNGs for the Set MCQ ANS batch op
   tests/                 unittest modules (see docs/core/01-runtime-and-ops.md)
-  docs/                  agent-first documentation (see OVERVIEW.md documentation map)
+  docs/                  agent-first documentation (see OVERVIEW.md documentation map); docs/agents/PLAYBOOK.md is read by the external AI agent
   .cursor/rules/         Cursor rules (session bootloader)
   output/                legacy OUTPUT_PATH fallback for pre-migration generated files (gitignored)
 ```
 
 External data (not in the repo): `SOURCE_PATH` (question assets, read-mostly) and `STORAGE_PATH`
-(`Shared/`, `System/`, `User/<username>/generated/`). Paths come from `.env`; on the current host they
+(`Shared/`, `System/`, `User/<username>/generated/`, `Requests/<id>/`). Paths come from `.env`; on the current host they
 are `D:\oqb_data\Source` and `D:\oqb_data\Storage`. See [docs/core/05-storage-and-paths.md](docs/core/05-storage-and-paths.md).
 
 ## Layering
@@ -66,11 +71,12 @@ flowchart LR
 
 ## Request and data flow (typical)
 
-1. `create_app()` (`app/__init__.py`): load `.env`, build DB URI, init `db` + `login_manager`, register 10 blueprints, inject `OQB_VERSIONS` into templates, ensure storage tree, mark stale `GeneratedFile` rows failed, run **idempotent boot schema patches**, write a `baseline` restore point for any subject without one, seed prompt variants, then `settings.load_all(app)` overlays DB-backed tunables onto `app.config`.
+1. `create_app()` (`app/__init__.py`): load `.env`, build DB URI, init `db` + `login_manager`, register every blueprint (table in [docs/core/04](docs/core/04-backend-conventions.md#blueprints)), inject `OQB_VERSIONS` into templates, ensure storage tree, mark stale `GeneratedFile` rows failed, run **idempotent boot schema patches**, write a `baseline` restore point for any subject without one, seed prompt variants, then `settings.load_all(app)` overlays DB-backed tunables onto `app.config`.
 2. A request hits a blueprint route; `@login_required` + an authz decorator gate it; `subject_id` is extracted from URL kwargs, query, form, or JSON body.
 3. Dashboard filtering: `POST /dashboard/filter` builds a SQLAlchemy query, then sorts **in Python** with `apply_multi_sort` (natural sort, NULL handling, manual block order) and paginates; returns `partials/question_list.html`.
 4. Generation: `POST /generate` records a `GeneratedFile` (`pending`) and spawns a background thread that expands the selection with `hierarchy.resolve_render_plan`, builds the `.docx` (python-docx + docxcompose; DOC slots merged natively through Word COM under a global lock), writes to `User/<name>/generated/`, and flips status to `completed`/`failed`. The page polls `GET /generate/status/<id>`. PDF is produced lazily on request via Word `ExportAsFixedFormat`.
-5. Long admin batch operations (ingest, sync, batch IMG, AI check/generate/solve/tag, MCQ ANS) stream **SSE** (`text/event-stream`, events `{type, message, current?, total?}`, `type='done'` ends the stream) and support a server-side cancel registry where documented.
+5. External AI agent: `POST /mcp` (bearer token, loopback only by default) → `agent_mcp` dispatches a JSON-RPC tool call → the tool calls the same services as the web routes (`question_edit_service`, `library_ops_service`, `review_service`, `support_requests_service`) → commit, `agent_action_log` row, optional system line in the request thread. Its results reach people through Review batches and Request threads ([docs/modules/agent-mcp.md](docs/modules/agent-mcp.md)).
+6. Long admin batch operations (ingest, sync, batch IMG, AI check/generate/solve/tag, MCQ ANS) stream **SSE** (`text/event-stream`, events `{type, message, current?, total?}`, `type='done'` ends the stream) and support a server-side cancel registry where documented.
 
 ## Conventions you must follow
 
@@ -94,6 +100,7 @@ flowchart LR
 | A new LLM-backed feature | prompt key in `app/ai_prompts.PROMPTS_REGISTRY`, worker in `app/ai_tools.py`, default-LLM setting `<FEATURE>_DEFAULT_LLM` | `docs/modules/ai-tools.md`, `docs/modules/ai-prompts.md`, `docs/core/06` |
 | Any code that writes topics / subtopics / chapters / subchapters or a question's tag fields | wherever it belongs, but call `subject_snapshot.capture(subject_id, action)` **before the first mutation** (or `capture_committed` if it commits per row) | writer table in [docs/modules/subject-snapshots.md](docs/modules/subject-snapshots.md); a new snapshotted field also goes into `QUESTION_FIELDS` |
 | A new QID / QNO form (part, range, filename regex) | `app/hierarchy.py` first, then the caller | [docs/modules/question-hierarchy.md](docs/modules/question-hierarchy.md), [docs/reference/filename-convention.md](docs/reference/filename-convention.md) |
+| A write the AI agent should be able to make | a service function (`library_ops_service`, `question_edit_service`, …) called by both the route and a new `@tool(..., writes=True)` in `app/agent_mcp_tools.py`; never a delete tool | [docs/modules/agent-mcp.md](docs/modules/agent-mcp.md) tool table, `docs/agents/PLAYBOOK.md` |
 | A test | `tests/test_<module>.py` using `unittest`; avoid `create_app()` (it touches the live DB) unless unavoidable | `docs/core/01` if the run ritual changes |
 
 ## Known structural hazards

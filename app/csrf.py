@@ -8,8 +8,9 @@ csrf.js`` adds it to fetch, XHR, htmx and form posts.
 ``protect`` (``before_request``) checks POST / PUT / PATCH / DELETE: the
 ``X-CSRF-Token`` header, else the ``csrf_token`` form field, must equal the
 session token. Exemptions are by endpoint name: the SSO token POST (checked by
-Origin) and the directory feed (signed, no cookies). ``CSRF_MODE=report``
-logs ``csrf_failed`` and lets the request through (rollout only).
+Origin), the directory feed (signed, no cookies) and the agent endpoint
+``/mcp`` (bearer token, no cookies; ADR-021). ``CSRF_MODE=report`` logs
+``csrf_failed`` and lets the request through (rollout only).
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ SESSION_KEY = '_csrf'
 HEADER = 'X-CSRF-Token'
 FIELD = 'csrf_token'
 UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
-EXEMPT_ENDPOINTS = frozenset({'sso.token_post', 'sso.directory_feed'})
+EXEMPT_ENDPOINTS = frozenset({'sso.token_post', 'sso.directory_feed', 'agent_mcp.mcp'})
 # A failed check answers 303 to the target instead of 400: the Web Share
 # Target fallback cannot carry a token, and the view never runs.
 REDIRECT_ON_FAILURE = {'toolbox.markup_share_target': 'toolbox.markup_tool'}

@@ -47,7 +47,8 @@ class CheckScopeTests(unittest.TestCase):
             self.assertFalse(csrf.needs_check(method, 'admin.add_topic'), method)
 
     def test_exemptions_by_endpoint_name(self):
-        self.assertEqual(csrf.EXEMPT_ENDPOINTS, {'sso.token_post', 'sso.directory_feed'})
+        self.assertEqual(csrf.EXEMPT_ENDPOINTS,
+                         {'sso.token_post', 'sso.directory_feed', 'agent_mcp.mcp'})
         for endpoint in csrf.EXEMPT_ENDPOINTS:
             self.assertFalse(csrf.needs_check('POST', endpoint))
         # not exempt: same blueprint, other views; the share target redirects instead

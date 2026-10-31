@@ -53,6 +53,12 @@
                 <li><a class="dropdown-item" href="#" id="aqSplitItem" onclick="aqOpenSplit(); return false;"><i class="bi bi-scissors"></i> {{ t('Split into parts') }}<small>{{ t('One standalone question at a time.') }}</small></a></li>
             </ul>
         </div>
+        {% if requests_can_report() %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="oqbReportIssue(AQ.selected.keys())"
+                title="{{ t('Open a request about the selected questions (for the AI agent or other admins)') }}">
+            <i class="bi bi-flag"></i> {{ t('Report issue') }}
+        </button>
+        {% endif %}
         <div class="ms-auto">
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="aqOpenOp('deleteQuestions')">
                 <i class="bi bi-trash"></i> {{ t('Delete questions…') }}

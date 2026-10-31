@@ -1134,3 +1134,178 @@ SSO_MODELS = (
     SmsSubjectCatalogue, SmsRoster, SmsFeedState, SmsSnapshot, SsoUsedJti,
     SsoPendingLink, AuthAuditLog,
 )
+
+
+# ---------------------------------------------------------------------------
+# Agent endpoint, Review and Requests (docs/modules/agent-mcp.md, review.md,
+# requests.md). InnoDB + utf8mb4 pinned like the SSO tables. No foreign keys
+# to users / questions / subjects: rows outlive deleted questions (the QID
+# text is kept) and user erase nulls the user columns (user_erase.NULL_REFS).
+# Foreign keys only between these tables.
+# ---------------------------------------------------------------------------
+
+_APP_TABLE = dict(_SSO_TABLE)
+
+
+class AgentActionLog(db.Model):
+    """One write made through the agent endpoint (/mcp): which tool, which
+    agent, what it touched, and the outcome. Never stores the token."""
+    __tablename__ = 'agent_action_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    agent_name = db.Column(db.String(80), nullable=True)
+    tool = db.Column(db.String(60), nullable=False, index=True)
+    outcome = db.Column(db.String(10), nullable=False)  # ok | error
+    subject_id = db.Column(db.String(10), nullable=True, index=True)
+    question_id = db.Column(db.Integer, nullable=True)
+    request_id = db.Column(db.Integer, nullable=True, index=True)
+    batch_id = db.Column(db.Integer, nullable=True)
+    reason = db.Column(db.String(500), nullable=True)
+    summary = db.Column(db.Text, nullable=True)  # arguments, long values cut
+    error = db.Column(db.String(500), nullable=True)
+
+    __table_args__ = _APP_TABLE
+
+
+class ReviewBatch(db.Model):
+    """A list of proposed question changes for one subject, from an agent
+    (MCP) or pasted by an admin. Worked through on /admin/review/<id>."""
+    __tablename__ = 'review_batches'
+
+    id = db.Column(db.Integer, primary_key=True)
+    subject_id = db.Column(db.String(10), nullable=False, index=True)
+    title = db.Column(db.String(200), nullable=False)
+    summary = db.Column(db.Text, nullable=True)
+    source = db.Column(db.String(10), nullable=False, default='agent')  # agent | import
+    agent_name = db.Column(db.String(80), nullable=True)
+    created_by = db.Column(db.Integer, nullable=True)  # users.id (import), no FK
+    linked_request_id = db.Column(db.Integer, nullable=True)
+    status = db.Column(db.String(12), nullable=False, default='open', index=True)  # open | done | archived
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+    __table_args__ = _APP_TABLE
+
+
+class ReviewItem(db.Model):
+    """One question in a batch. ``kind='fields'``: ``changes`` is a JSON list
+    of ``{field, old, new}`` (taxonomy values as ids) applied through
+    ``question_edit_service``. ``kind='freeform'``: a described change the
+    admin marks done or rejects."""
+    __tablename__ = 'review_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    batch_id = db.Column(db.Integer, db.ForeignKey('review_batches.id', ondelete='CASCADE'),
+                         nullable=False, index=True)
+    question_id = db.Column(db.Integer, nullable=True, index=True)  # no FK
+    qid = db.Column(db.String(100), nullable=False)
+    position = db.Column(db.Integer, nullable=False, default=0)
+    kind = db.Column(db.String(10), nullable=False, default='fields')
+    changes = db.Column(db.Text, nullable=True)
+    title = db.Column(db.String(300), nullable=True)
+    rationale = db.Column(db.Text, nullable=True)
+    confidence = db.Column(db.Float, nullable=True)
+    status = db.Column(db.String(10), nullable=False, default='pending', index=True)
+    applied_changes = db.Column(db.Text, nullable=True)
+    admin_note = db.Column(db.String(1000), nullable=True)
+    decided_by = db.Column(db.Integer, nullable=True)  # users.id, no FK
+    decided_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = _APP_TABLE
+
+
+class SupportRequest(db.Model):
+    """An issue thread (Requests): a teacher's report, its messages and
+    attachments, replies from admins and agents, and a status."""
+    __tablename__ = 'support_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    category = db.Column(db.String(12), nullable=False, default='question')
+    subject_id = db.Column(db.String(10), nullable=True, index=True)  # NULL = general
+    reporter_id = db.Column(db.Integer, nullable=True, index=True)  # users.id, no FK
+    status = db.Column(db.String(20), nullable=False, default='open', index=True)
+    last_actor_kind = db.Column(db.String(10), nullable=True)  # user | admin | agent | system
+    last_message_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    closed_by = db.Column(db.Integer, nullable=True)  # users.id, no FK
+    closed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = _APP_TABLE
+
+
+class SupportRequestQuestion(db.Model):
+    """A question a request is about. ``qid`` / ``subject_id`` are copied at
+    report time so the link reads after the question is renamed or deleted."""
+    __tablename__ = 'support_request_questions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, db.ForeignKey('support_requests.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    question_id = db.Column(db.Integer, nullable=True, index=True)  # no FK
+    qid = db.Column(db.String(100), nullable=False)
+    subject_id = db.Column(db.String(10), nullable=True)
+
+    __table_args__ = _APP_TABLE
+
+
+class SupportRequestMessage(db.Model):
+    """One entry in a request thread. ``kind``: message | approval_request |
+    approval | rejection | status_change. ``meta`` is JSON (e.g. the new
+    status, or the approval request a decision answers)."""
+    __tablename__ = 'support_request_messages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, db.ForeignKey('support_requests.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    author_kind = db.Column(db.String(10), nullable=False)  # user | agent | system
+    author_user_id = db.Column(db.Integer, nullable=True)  # users.id, no FK
+    agent_name = db.Column(db.String(80), nullable=True)
+    kind = db.Column(db.String(20), nullable=False, default='message')
+    body = db.Column(_LONG_TEXT, nullable=True)
+    meta = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = _APP_TABLE
+
+
+class SupportRequestAttachment(db.Model):
+    """A file attached to a message. Stored as ``STORAGE_PATH/Requests/
+    <request_id>/<stored_name>``; served only through the thread's route."""
+    __tablename__ = 'support_request_attachments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey('support_request_messages.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    request_id = db.Column(db.Integer, nullable=False, index=True)
+    original_name = db.Column(db.String(255), nullable=False)
+    stored_name = db.Column(db.String(255), nullable=False)
+    mime = db.Column(db.String(100), nullable=True)
+    size = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = _APP_TABLE
+
+
+class SupportRequestRead(db.Model):
+    """The last message a user has seen in a thread (unread badge)."""
+    __tablename__ = 'support_request_reads'
+
+    user_id = db.Column(db.Integer, primary_key=True)  # users.id, no FK
+    request_id = db.Column(db.Integer, db.ForeignKey('support_requests.id', ondelete='CASCADE'),
+                           primary_key=True)
+    last_read_message_id = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+    __table_args__ = _APP_TABLE
+
+
+# Creation order for the boot patch (parents first).
+AGENT_REVIEW_REQUEST_MODELS = (
+    AgentActionLog, ReviewBatch, ReviewItem, SupportRequest, SupportRequestQuestion,
+    SupportRequestMessage, SupportRequestAttachment, SupportRequestRead,
+)

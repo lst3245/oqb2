@@ -1,0 +1,27 @@
+---
+description: AI agent endpoint POST /mcp - bearer token with super-admin power, tool registry, writes only through shared services, action log, playbook, no delete tools
+globs: app/agent_mcp.py,app/agent_mcp_tools.py,app/library_ops_service.py,docs/agents/PLAYBOOK.md,scripts/oqb_mcp_stdio.py,tests/test_agent_mcp.py
+alwaysApply: false
+---
+
+# Agent endpoint (bootloader — spec in `docs/modules/agent-mcp.md`, ADR-021, ADR-022)
+
+`POST /mcp` is MCP over HTTP (JSON-RPC 2.0, JSON answers, no SSE, no MCP session). The external agent (scheduled Grok bot) reads `docs/agents/PLAYBOOK.md` through `get_instructions`.
+
+## Invariants
+- **Access order:** 404 (`AGENT_MCP_ENABLED` off or `AGENT_API_TOKEN` empty) → 403 IP (`AGENT_MCP_ALLOWED_IPS`, default loopback; both `web_security.client_ip` **and** the pre-ProxyFix socket peer `peer_ip` must pass, since `X-Forwarded-For` is forgeable) / bad `Origin` → 429 → 401 bearer. Token only in `.env`; compared with `hmac.compare_digest`. CSRF- and session-exempt (`agent_mcp.mcp`); never read or set a cookie there.
+- **The token is a super admin.** Tools do not check subject levels; the playbook keeps the agent inside the request and asks for approval first (soft gate, not enforced).
+- **Every write tool calls a service shared with the web route**: `question_edit_service.apply_fields`, `review_service`, `support_requests_service`, `library_ops_service` (rename, set parent, upload, replace, taxonomy add / edit). Never write a model attribute or a file under `SOURCE_PATH` in a tool. New write = service function first, route + tool both call it.
+- **No delete tools.** `test_agent_mcp` fails on a tool named `delete*`.
+- Register with `@tool(name, description, schema, title=, writes=, thread_note=)`; schemas via `_schema` / `_write_schema` (`additionalProperties: false`, always `agent_name`; every `writes=True` tool lists `reason`). The server does not validate schemas: check arguments in the handler (`_int_arg`, `_str_arg`, `find_question`).
+- Refuse with `ToolError(msg)` (returned as `isError`). Any other exception is logged and returned as an internal error. The transport commits after the handler and rolls back on error; `writes=True` → one `agent_action_log` row (own commit) per call; `thread_note=True` → a system line in `request_id`'s thread after success.
+- Restore points: agent tag / taxonomy writes pass `action='agent-edit'` and a note `"<agent> <tool> <target>: <reason>"` (`subject-snapshots.mdc`).
+- Tools that must commit midway (`upload_asset`, `replace_asset`) call the thumbnail hooks only after their commit (`library_ops.after_upload`; `replace_img_assets` does its own).
+- `replace_asset` requires `request_id` and attaches the old files to that thread before replacing.
+
+## Gotchas
+- Never log or summarise the token; `summarize_args` cuts long strings (base64) before they reach the log.
+- `t()` returns English here (no language cookie); tool text is English by design.
+- `library_ops_service` lazily imports helpers that stay in `admin.py` (`_block_owner_conflict`, `_build_asset_file_path`, `validate_qid_format`, `_extract_qb_detail`); keep those names when refactoring `admin.py`.
+- Never call write tools against the live server to "test" them; use the pure tests (`python -m unittest tests.test_agent_mcp`).
+- Keep the playbook's tool table and status table in sync with the code; the agent reads nothing else.

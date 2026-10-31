@@ -1,6 +1,6 @@
 ---
 description: Subject AI tuning - per-subject Auto Tag instructions (append/replace), taxonomy hints, prompt preview, evaluate vs existing tags, teacher-correction log fed back into the prompt
-globs: app/subject_ai.py,app/subject_ai_service.py,templates/admin_subject_ai.html
+globs: app/subject_ai.py,app/subject_ai_service.py,app/review_service.py,templates/admin_subject_ai.html
 alwaysApply: false
 ---
 
@@ -10,7 +10,7 @@ alwaysApply: false
 - One prompt assembler: `ai_tools.build_tag_prompt`. Preview promises "exactly what the model sees" — never build a tag prompt elsewhere, never add a second injection point.
 - `SubjectPromptNote.mode`: `append` fills `{{subject_instructions}}` in `TAG_USER`; `replace` swaps the `TAG_SYSTEM` **body** via `ai_prompts.system_prompt_with_body` and is not repeated in the user turn. The `TAG_FORMAT` block is always re-attached — the subject tier can never edit the JSON contract.
 - Correction patterns (`examples_limit > 0`) are **aggregated disagreements only** (`field, suggested → saved, count`), no question content. Recomputed per call by `correction_patterns_text`.
-- `TagCorrection` stores display **names**, never IDs; `agreed` = `compare_labels` (case-insensitive scalars, set equality for `minor_topics` / `subtopics`, `level` as string). Rows are written only from the edit modal's Save-Tags-after-Suggest path (`/admin/questions/<id>/ai/tag-corrections`).
+- `TagCorrection` stores display **names**, never IDs; `agreed` = `compare_labels` (case-insensitive scalars, set equality for `minor_topics` / `subtopics`, `level` as string). Rows are written from the edit modal's Save-Tags-after-Suggest path (`/admin/questions/<id>/ai/tag-corrections`) and from Review decisions (`review_service.log_corrections` after an apply / reject commits; model `agent:<name>`, else `review-<source>`). Both go through `subject_ai_service.log_corrections`.
 - Evaluate (`iter_tag_evaluate`) never calls `apply_tags`; skips stems and questions with no existing value in the requested fields; `applicable` counts only fields with a ground truth.
 - Taxonomy: hidden topics / subtopics / chapters / subchapters are not sent to the model (a hidden topic or chapter drops its children too); `description` ≤ 300 chars, whitespace-collapsed, validated to belong to the URL subject (`set_description`). `set_description` captures a `taxonomy-hint` restore point after validation and before the write (`subject-snapshots.mdc`).
 - Authz: every subject route has `subject_id` in the URL so `@subject_admin_required` fires; the per-question route checks `question.subject` explicitly. This tier is lower trust than `/admin/prompts` (super-admin).

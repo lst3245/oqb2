@@ -68,6 +68,9 @@ def create_app():
     from app.sms_admin import sms_admin_bp
     from app.account_admin import account_admin_bp
     from app.groups_admin import groups_admin_bp
+    from app.agent_mcp import agent_mcp_bp
+    from app.review import review_bp
+    from app.support_requests import support_requests_bp
     from app import csrf, web_security
 
     web_security.init_app(app)
@@ -87,6 +90,9 @@ def create_app():
     app.register_blueprint(subject_ai_bp)
     app.register_blueprint(restore_points_bp)
     app.register_blueprint(i18n_bp)
+    app.register_blueprint(agent_mcp_bp)
+    app.register_blueprint(review_bp)
+    app.register_blueprint(support_requests_bp)
 
     # UI language / taxonomy display mode (cookies) and the `t()` /
     # `tax_name()` helpers for every template (docs/modules/i18n.md).
@@ -664,6 +670,17 @@ def create_app():
             UserGroupMember.__table__.create(db.engine, checkfirst=True)
         except Exception:
             app.logger.exception('user group tables were not created')
+
+        # Agent endpoint, Review and Requests (docs/modules/agent-mcp.md,
+        # review.md, requests.md): new tables only, parents first (the review
+        # items / request rows point at review_batches / support_requests).
+        # checkfirst is a no-op once they exist.
+        from app.models import AGENT_REVIEW_REQUEST_MODELS
+        for _model in AGENT_REVIEW_REQUEST_MODELS:
+            try:
+                _model.__table__.create(db.engine, checkfirst=True)
+            except Exception:
+                app.logger.exception('table %s was not created', _model.__tablename__)
 
     # Load DB-backed system settings into app.config, overriding the
     # .env / Config bootstrap. Safe to call before init_db.py — missing

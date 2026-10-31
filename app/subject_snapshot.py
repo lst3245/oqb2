@@ -63,6 +63,8 @@ ACTION_LABELS = {
     'chapter-import': 'Chapters CSV import',
     'auto-tag': 'Auto Tag run',
     'pdf-import': 'PDF import (marks)',
+    'review-apply': 'Review apply',
+    'agent-edit': 'AI agent edit',
     'before-restore': 'Before restore',
 }
 

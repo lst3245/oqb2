@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{# Review JSON import with a validation preview (/admin/review/import). Spec: docs/modules/review.md #}
+
+{% block title %}{{ t('Import review JSON - Question Bank') }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+        <h2 class="mb-0"><i class="bi bi-upload"></i> {{ t('Import review JSON') }}</h2>
+        <a href="{{ url_for('review.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> {{ t('Back to Review') }}
+        </a>
+    </div>
+    <p class="text-muted mt-1"><i class="bi bi-info-circle"></i>
+        {{ t('Paste the JSON an AI agent produced (or upload the file). Check the preview, then save it as a review batch. Nothing changes in the question bank until you apply items one by one.') }}
+    </p>
+    <hr>
+
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="card mb-3">
+        {{ csrf_field() }}
+        <div class="card-body">
+            <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold" for="rvSubject">{{ t('Subject') }}</label>
+                    <select id="rvSubject" name="subject_id" class="form-select form-select-sm">
+                        <option value="">{{ t('From the JSON ("subject")') }}</option>
+                        {% for s in subjects %}
+                        <option value="{{ s.id }}" {{ 'selected' if s.id == subject_id }}>{{ s.id }} · {{ tax_name(s) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label small fw-semibold" for="rvTitle">{{ t('Title') }}</label>
+                    <input id="rvTitle" name="title" class="form-control form-control-sm" maxlength="200"
+                           value="{{ title }}" placeholder="{{ t('From the JSON ("title")') }}">
+                </div>
+            </div>
+            <label class="form-label small fw-semibold" for="rvPayload">{{ t('JSON') }}</label>
+            <textarea id="rvPayload" name="payload" class="form-control font-monospace small" rows="12"
+                      placeholder='{"subject": "MATC", "title": "...", "items": [{"qid": "...", "changes": [{"field": "chapter", "old": "...", "new": "..."}], "rationale": "...", "confidence": 0.8}]}'>{{ payload_text }}</textarea>
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                <input type="file" name="file" accept=".json,application/json,text/plain" class="form-control form-control-sm" style="max-width: 320px">
+                <button type="submit" name="action" value="preview" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-eye"></i> {{ t('Check') }}
+                </button>
+                {% if preview and preview.valid %}
+                <button type="submit" name="action" value="save" class="btn btn-primary btn-sm">
+                    <i class="bi bi-save"></i> {{ t('Save batch with {n} items', n=preview.valid) }}
+                </button>
+                {% endif %}
+                <a href="#rvFormat" data-bs-toggle="collapse" class="small ms-auto">{{ t('Format') }}</a>
+            </div>
+            <div id="rvFormat" class="collapse mt-2">
+                <div class="small text-muted">
+                    {{ t('Each item names a question by "qid" and lists "changes" as [{"field", "old", "new"}] or {"field": "new"}. Fields: major_topic, major_subtopic, minor_topics, subtopics, chapter, subchapter, level, q_type, section, marks, correct_percentage, answer, description, comment. Topic and chapter values are ids or names (English or Chinese). Add "rationale" and "confidence" (0 to 1). An item with "kind": "freeform" and a "title" is a note the admin marks done or rejects.') }}
+                </div>
+            </div>
+        </div>
+    </form>
+
+    {% if preview %}
+    <div class="card">
+        <div class="card-header d-flex flex-wrap gap-3">
+            <span><strong>{{ preview.valid }}</strong> / {{ preview.total }} {{ t('items can be saved') }}</span>
+            {% if preview.errors %}<span class="text-danger">{{ t('{n} with errors (left out)', n=preview.errors) }}</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if preview.problems %}
+            <ul class="small mb-3">
+                {% for p in preview.problems %}
+                <li class="{{ 'text-danger' if p.level == 'error' else 'text-warning-emphasis' }}">
+                    #{{ p.index }} {% if p.qid %}<code>{{ p.qid }}</code>{% endif %} — {{ p.message }}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% if preview.rows %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle small">
+                    <thead><tr><th>{{ t('Question') }}</th><th>{{ t('Change') }}</th><th>{{ t('Confidence') }}</th></tr></thead>
+                    <tbody>
+                    {% for r in preview.rows %}
+                    <tr>
+                        <td><code>{{ r.qid or '—' }}</code></td>
+                        <td>
+                            {% if r.kind == 'freeform' %}<i class="bi bi-chat-left-text"></i> {{ r.title }}
+                            {% else %}
+                            {% for c in r.changes %}
+                            <div><span class="text-muted">{{ t(c.label) }}:</span> {{ c.old or '—' }} <i class="bi bi-arrow-right"></i> <strong>{{ c.new or '—' }}</strong></div>
+                            {% endfor %}
+                            {% endif %}
+                        </td>
+                        <td>{{ '%d%%' % (r.confidence * 100) if r.confidence is not none else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if preview.valid > preview.rows|length %}<p class="small text-muted">{{ t('Showing the first {n}.', n=preview.rows|length) }}</p>{% endif %}
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

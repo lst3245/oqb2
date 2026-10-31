@@ -7,7 +7,7 @@ the account and everything it owns, in one transaction:
 * deleted: generated files (+ PDF siblings on disk), My Files sections,
   search profiles, generation presets and question sets (shared ones too),
   file shares on either side, subject permissions, group memberships
-  (the group itself stays), SMS links and levels;
+  (the group itself stays), SMS links and levels, request read markers;
 * set to NULL: "who did it" columns elsewhere (``NULL_REFS``);
 * kept: every ``auth_audit_log`` row, plus a new ``user_deleted`` row.
 
@@ -27,8 +27,9 @@ from sqlalchemy import delete, func, inspect, or_, select, update
 from app import auth_audit, db, storage
 from app.models import (
     ExternalIdentity, FileSection, FileShare, GeneratedFile, PromptOverride, PromptVariant,
-    Question, SavedFilter, SavedGenerationProfile, SavedQuestionSet, SmsSnapshot, SmsSubjectMap,
-    SmsTrustIssuer, SmsTrustKey, SubjectPromptNote, SubjectRestorePoint, SystemSetting,
+    Question, ReviewBatch, ReviewItem, SavedFilter, SavedGenerationProfile, SavedQuestionSet,
+    SmsSnapshot, SmsSubjectMap, SmsTrustIssuer, SmsTrustKey, SubjectPromptNote, SubjectRestorePoint,
+    SupportRequest, SupportRequestMessage, SupportRequestRead, SystemSetting,
     TagCorrection, User, UserGroupMember, UserSmsLevel, UserSubjectPermission,
 )
 
@@ -47,6 +48,12 @@ NULL_REFS = (
     (SmsSubjectMap.__table__, 'confirmed_by_user_id'),
     (SmsTrustIssuer.__table__, 'updated_by_user_id'),
     (SmsTrustKey.__table__, 'pinned_by_user_id'),
+    (ReviewBatch.__table__, 'created_by'),
+    (ReviewItem.__table__, 'decided_by'),
+    # A reporter's threads stay for the admins who work on them.
+    (SupportRequest.__table__, 'reporter_id'),
+    (SupportRequest.__table__, 'closed_by'),
+    (SupportRequestMessage.__table__, 'author_user_id'),
 )
 # MyISAM on the live server (not transactional): written last, right before
 # the user row, so a failure earlier in the erase leaves them untouched.
@@ -62,6 +69,7 @@ LINKS = (
     ('group_memberships', UserGroupMember.__table__),
     ('sms_levels', UserSmsLevel.__table__),
     ('sms_identities', ExternalIdentity.__table__),
+    ('request_reads', SupportRequestRead.__table__),
 )
 
 
