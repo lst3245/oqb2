@@ -16,7 +16,7 @@ alwaysApply: true
 | Restore points | `subject_restore_points` rows — the only per-subject undo history (binlog is off) | none |
 | Request attachments | `STORAGE_PATH\Requests\<id>\` + `support_request_attachments` rows — teachers' screenshots and the agent's backups of replaced files | none (permanent, never "clean up") |
 | Caches / staging | `STORAGE_PATH\System\*` | safe to clear when idle |
-| Secrets | `.env` (DB password, `LLM_API_KEY`, `SECRET_KEY`, `LLM_KEY_SECRET`, `AGENT_API_TOKEN` — super-admin access to `/mcp`) | `.env.example` |
+| Secrets | `.env` (DB password, `LLM_API_KEY`, `SECRET_KEY`, `LLM_KEY_SECRET`, `AGENT_API_TOKEN` — super-admin access to `/mcp`, `AGENT_WAKE_WEBHOOK_URL` / `_SECRET` — start the agent routine) | `.env.example` |
 
 ## NEVER
 

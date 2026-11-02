@@ -39,7 +39,11 @@ class StatusRuleTests(unittest.TestCase):
         self.assertEqual(srs.status_after_reply('reporter', 'needs_info'), 'open')
         self.assertEqual(srs.status_after_reply('reporter', 'resolved'), 'open')
         self.assertEqual(srs.status_after_reply('reporter', 'awaiting_approval'), 'awaiting_approval')
-        self.assertEqual(srs.status_after_reply('manager', 'needs_info'), 'needs_info')
+        self.assertEqual(srs.status_after_reply('manager', 'needs_info'), 'open')
+        self.assertEqual(srs.status_after_reply('manager', 'resolved'), 'open')
+        self.assertEqual(srs.status_after_reply('manager', 'closed'), 'closed')
+        self.assertEqual(srs.status_after_reply('manager', 'awaiting_approval'), 'awaiting_approval')
+        self.assertEqual(srs.status_after_reply(None, 'resolved'), 'resolved')
 
     def test_needs_agent(self):
         self.assertTrue(srs.needs_agent('approved', 'admin'))

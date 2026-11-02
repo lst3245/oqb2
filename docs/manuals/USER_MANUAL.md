@@ -625,7 +625,7 @@ Your administrator decides which role may report; by default every **User** can.
 
 ### Following up
 
-**Requests** in the top bar lists your requests. A red number shows how many have new messages. Open a request to read the replies and answer. Its status tells you where it stands:
+**Requests** in the top bar lists your requests. A red number shows how many have new messages. Open a request to read the replies and answer. While a request is open on your screen, new replies and status changes appear by themselves within a few seconds; you do not need to refresh the page, and what you are typing is kept. If you have scrolled up, a **New messages** button takes you to them. Click a picture in the conversation to see it larger; use **Previous** / **Next** (or the arrow keys) to move between the pictures and **Download** to save one. The agent can send pictures and files too. Its status tells you where it stands:
 
 | Status | Meaning |
 |---|---|
@@ -638,7 +638,7 @@ Your administrator decides which role may report; by default every **User** can.
 
 You can close your own request at any time: in the **Status** card pick **Closed** and click **Change status**.
 
-**Who sees a request:** you, the admins of the subjects of the linked questions, super admins and the AI agent. A request with no question and no subject is seen only by you, super admins and the agent. The agent may take a few hours to answer, because it checks OQB on a schedule.
+**Who sees a request:** you, the admins of the subjects of the linked questions, super admins and the AI agent. A request with no question and no subject is seen only by you, super admins and the agent. When your administrator has set up the agent's wake-up link, the agent usually answers within a minute or two; otherwise it may take a few hours, because it checks OQB on a schedule.
 
 ---
 

@@ -1,0 +1,212 @@
+{#
+   The body of one request thread: rendered by requests_thread.html and, on
+   its own, by GET /requests/<id>/live (the page's poll swaps #rqHeader,
+   #rqThread, #rqReplyNotice, #rqStatusBox and #rqBatches from it; keep those
+   ids). #rqReplyArea[data-can-reply] tells the page when the composer must
+   appear or go. Images carry .rq-zoom for the preview modal.
+   Spec: docs/modules/requests.md
+#}
+{% macro utc(dt) %}{{ dt.strftime('%Y-%m-%dT%H:%M:%SZ') if dt else '' }}{% endmacro %}
+
+{% macro who(m) -%}
+    {%- if m.author_kind == 'agent' -%}{{ m.agent_name or t('AI agent') }}
+    {%- elif m.author_kind == 'system' -%}{{ t('System') }}
+    {%- else -%}{{ names.get(m.author_user_id) or t('Deleted user') }}{%- endif -%}
+{%- endmacro %}
+
+{% macro files(m) %}
+    {% set atts = attachments.get(m.id, []) %}
+    {% if atts %}
+    <div class="rq-atts d-flex flex-wrap gap-2 mt-2">
+        {% for a in atts %}
+        {% set href = url_for('support_requests.attachment', attachment_id=a.id) %}
+        {% if is_inline_image(a.mime) %}
+        <a href="{{ href }}" class="rq-zoom" data-name="{{ a.original_name }}" data-download="{{ url_for('support_requests.attachment', attachment_id=a.id, download=1) }}" title="{{ a.original_name }}"><img src="{{ href }}" class="rq-att-img" alt="{{ a.original_name }}" loading="lazy"></a>
+        {% else %}
+        <a href="{{ href }}" class="rq-att-file border rounded px-2 py-1 small text-decoration-none" title="{{ a.original_name }}">
+            <i class="bi bi-file-earmark-arrow-down"></i> {{ a.original_name }} <span class="text-muted">({{ (a.size / 1024) | round(0) | int }} KB)</span>
+        </a>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+{% endmacro %}
+
+{% set my_id = current_user.id %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2" id="rqHeader">
+        <div>
+            <a href="{{ url_for('support_requests.index') }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ t('Requests') }}</a>
+            <h3 class="mb-1"><span class="text-muted">#{{ req.id }}</span> {{ req.title }}</h3>
+            <div class="d-flex flex-wrap gap-2 align-items-center small">
+                <span class="badge {{ status_badges.get(req.status, 'bg-secondary') }}">{{ t(status_labels.get(req.status, 'Open')) }}</span>
+                <span class="badge text-bg-light border">{{ t(category_labels.get(req.category, 'General')) }}</span>
+                {% if req.subject_id %}<span class="badge text-bg-light border">{{ req.subject_id }}</span>{% endif %}
+                <span class="text-muted">{{ t('Reported by {name}', name=names.get(req.reporter_id) or t('Deleted user')) }} · <span data-utc="{{ utc(req.created_at) }}"></span></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <div class="rq-thread mb-4" id="rqThread" data-rq-gallery
+                 data-last-id="{{ messages[-1].id if messages else 0 }}" data-status="{{ req.status }}">
+                {% for m in messages %}
+                {% set meta = load_meta(m.meta) %}
+                {% if m.kind == 'status_change' %}
+                <div class="rq-note">
+                    <i class="bi bi-arrow-repeat"></i>
+                    {{ t('{who} changed the status from {old} to {new}', who=who(m), old=t(status_labels.get(meta.get('from'), 'Open')), new=t(status_labels.get(meta.get('to'), 'Open'))) }}
+                    · <span data-utc="{{ utc(m.created_at) }}"></span>
+                    {% if m.body %}<div class="rq-body-text">{{ render_body(m.body) }}</div>{% endif %}
+                </div>
+                {% elif m.author_kind == 'system' %}
+                <div class="rq-note">
+                    <i class="bi bi-gear"></i> {{ render_body(m.body) }} · <span data-utc="{{ utc(m.created_at) }}"></span>
+                </div>
+                {% elif m.kind == 'approval_request' %}
+                <div class="card border-warning rq-card" id="msg-{{ m.id }}">
+                    <div class="card-header bg-warning-subtle small">
+                        <i class="bi bi-shield-exclamation"></i>
+                        {{ t('{who} asks for approval before changing anything', who=who(m)) }} · <span data-utc="{{ utc(m.created_at) }}"></span>
+                    </div>
+                    <div class="card-body">
+                        <div>{{ render_body(m.body) }}</div>
+                        {{ files(m) }}
+                        {% if pending_id == m.id %}
+                            {% if access.approve %}
+                            <hr>
+                            <textarea class="form-control form-control-sm mb-2" id="rqDecisionNote" rows="2"
+                                      placeholder="{{ t('Note for the agent (required to reject)') }}"></textarea>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-success btn-sm" onclick="rqDecide('approve')"><i class="bi bi-check-lg"></i> {{ t('Approve') }}</button>
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="rqDecide('reject')"><i class="bi bi-x-lg"></i> {{ t('Reject') }}</button>
+                            </div>
+                            <div class="small text-muted mt-2">{{ t('Approving lets the agent carry out this plan on its next run. It saves a restore point before tag changes.') }}</div>
+                            {% else %}
+                            <div class="small text-muted mt-2"><i class="bi bi-hourglass-split"></i> {{ t('Waiting for a subject admin to approve or reject.') }}</div>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+                {% elif m.kind in ('approval', 'rejection') %}
+                <div class="card {{ 'border-success' if m.kind == 'approval' else 'border-danger' }} rq-card {{ 'align-self-end' if m.author_user_id == my_id }}">
+                    <div class="card-body py-2 small">
+                        {% if m.kind == 'approval' %}<i class="bi bi-check-circle text-success"></i> {{ t('{who} approved the plan', who=who(m)) }}
+                        {% else %}<i class="bi bi-x-circle text-danger"></i> {{ t('{who} rejected the plan', who=who(m)) }}{% endif %}
+                        · <span data-utc="{{ utc(m.created_at) }}"></span>
+                        {% if m.body %}<div class="mt-1">{{ render_body(m.body) }}</div>{% endif %}
+                    </div>
+                </div>
+                {% else %}
+                {% set mine = m.author_kind == 'user' and m.author_user_id == my_id %}
+                <div class="rq-msg {{ 'rq-mine' if mine }} {{ 'rq-agent' if m.author_kind == 'agent' }}" id="msg-{{ m.id }}">
+                    <div class="rq-meta {{ 'text-end' if mine }}">
+                        {% if m.author_kind == 'agent' %}<i class="bi bi-robot"></i>{% endif %}
+                        <strong>{{ who(m) }}</strong>
+                        {% if m.author_kind == 'user' and m.author_user_id != req.reporter_id %}<span class="badge text-bg-secondary">{{ t('Admin') }}</span>{% endif %}
+                        · <span data-utc="{{ utc(m.created_at) }}"></span>
+                    </div>
+                    <div class="rq-bubble">
+                        {% if m.body %}<div>{{ render_body(m.body) }}</div>{% endif %}
+                        {{ files(m) }}
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+
+            <div id="rqReplyArea" data-can-reply="{{ '1' if can_reply else '0' }}">
+            {% if can_reply %}
+            <div class="card">
+                <div class="card-body">
+                    <div id="rqReplyNotice">
+                    {% if req.status == 'needs_info' %}
+                    <div class="alert alert-warning py-2 small"><i class="bi bi-question-circle"></i> {{ t('More information is needed. Your reply sends the request back to the agent and admins.') }}</div>
+                    {% elif req.status == 'resolved' %}
+                    <div class="alert alert-success py-2 small"><i class="bi bi-check-circle"></i> {{ t('This request is marked resolved. Reply if the problem is still there; that reopens it.') }}</div>
+                    {% endif %}
+                    </div>
+                    {% with composer_id='rqComposer', composer_rows=4, composer_placeholder=t('Write a reply. You can paste screenshots here.') %}{% include 'partials/request_composer.html' %}{% endwith %}
+                    <div class="d-flex justify-content-end mt-2">
+                        <button type="button" class="btn btn-primary btn-sm" id="rqSendBtn" onclick="rqSend()"><i class="bi bi-send"></i> {{ t('Send') }}</button>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <p class="text-muted small"><i class="bi bi-lock"></i> {{ t('This request is closed.') }}</p>
+            {% endif %}
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div id="rqStatusBox">
+            {% if statuses %}
+            <div class="card mb-3">
+                <div class="card-header small fw-semibold">{{ t('Status') }}</div>
+                <div class="card-body">
+                    <select class="form-select form-select-sm mb-2" id="rqStatus">
+                        {% for s in statuses %}
+                        <option value="{{ s }}">{{ t(status_labels[s]) }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" class="form-control form-control-sm mb-2" id="rqStatusNote" maxlength="2000" placeholder="{{ t('Note (optional)') }}">
+                    <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="rqSetStatus()">{{ t('Change status') }}</button>
+                    {% if access.role == 'reporter' %}
+                    <div class="form-text">{{ t('Close the request when your problem is solved or no longer matters.') }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header small fw-semibold">{{ t('Questions') }} <span class="badge bg-secondary">{{ links|length }}</span></div>
+                {% if not links %}
+                <div class="card-body small text-muted">{{ t('No questions are linked to this request.') }}</div>
+                {% else %}
+                <ul class="list-group list-group-flush">
+                    {% for l in links %}
+                    {% set live_q = live.get(l.question_id) %}
+                    <li class="list-group-item small">
+                        <div class="d-flex justify-content-between align-items-center gap-2">
+                            <code>{{ live_q.qid if live_q else l.qid }}</code>
+                            <span class="d-flex gap-1">
+                                {% if live_q and l.question_id in viewable %}
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0" onclick="rqTogglePreview({{ l.question_id }}, this)" title="{{ t('Show the question') }}"><i class="bi bi-eye"></i></button>
+                                {% endif %}
+                                {% if live_q and l.question_id in editable %}
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0" onclick="openEditModal({{ l.question_id }})" title="{{ t('Edit') }}"><i class="bi bi-pencil"></i></button>
+                                {% endif %}
+                            </span>
+                        </div>
+                        {% if not live_q %}<div class="text-muted">{{ t('This question no longer exists.') }}</div>
+                        {% elif live_q.qid != l.qid %}<div class="text-muted">{{ t('Reported as {qid}', qid=l.qid) }}</div>{% endif %}
+                        <div class="rq-preview d-none" id="rqPreview{{ l.question_id }}" data-rq-gallery></div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+
+            <div id="rqBatches">
+            {% if batches %}
+            <div class="card mb-3">
+                <div class="card-header small fw-semibold"><i class="bi bi-ui-checks"></i> {{ t('Review batches') }}</div>
+                <ul class="list-group list-group-flush">
+                    {% for b in batches %}
+                    <li class="list-group-item small"><a href="{{ url_for('review.batch_page', batch_id=b.id) }}">#{{ b.id }} {{ b.title }}</a></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            </div>
+
+            <div class="small text-muted">
+                <i class="bi bi-eye"></i>
+                {% if req.subject_id or links %}{{ t('Seen by the reporter, admins of the linked subjects, super admins and the AI agent.') }}
+                {% else %}{{ t('Seen by the reporter, super admins and the AI agent.') }}{% endif %}
+            </div>
+        </div>
+    </div>
+</div>

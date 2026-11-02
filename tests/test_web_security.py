@@ -64,6 +64,20 @@ class OriginTests(unittest.TestCase):
         self.assertEqual(seen['ip'], '8.8.4.4')
 
 
+class SeenMarkerTests(unittest.TestCase):
+    def test_seen_moves_at_most_once_a_minute(self):
+        auth = {'m': 'password', 'at': 1000, 'seen': 1000}
+        step = web_security.SEEN_STEP_SECONDS
+        self.assertIsNone(web_security.refreshed_marker(auth, 1000 + step - 1, 'dashboard.index'))
+        self.assertEqual(web_security.refreshed_marker(auth, 1000 + step, 'dashboard.index'),
+                         {'m': 'password', 'at': 1000, 'seen': 1000 + step})
+
+    def test_passive_endpoints_never_count_as_activity(self):
+        auth = {'m': 'sms', 'at': 1000, 'seen': 1000}
+        for endpoint in web_security.PASSIVE_ENDPOINTS:
+            self.assertIsNone(web_security.refreshed_marker(auth, 1000 + web_security.IDLE_SECONDS, endpoint))
+
+
 class RateLimiterTests(unittest.TestCase):
     def test_window(self):
         t = [0.0]

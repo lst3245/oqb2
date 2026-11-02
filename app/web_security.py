@@ -44,6 +44,9 @@ IDLE_SECONDS = 2 * 3600
 MAX_REMEMBER_DAYS = 30
 SEEN_STEP_SECONDS = 60  # 'seen' is rewritten at most once a minute
 SESSION_EXEMPT_ENDPOINTS = frozenset({'static', 'sso.directory_feed', 'agent_mcp.mcp'})
+# Background polls from an open page: the limits apply, but they never count
+# as activity, or an idle tab would keep its session alive forever.
+PASSIVE_ENDPOINTS = frozenset({'support_requests.thread_live'})
 
 ENDED_MESSAGE = 'Your session has ended. Please sign in again.'
 
@@ -137,6 +140,14 @@ def check_session(auth, now: int, *, linked: bool, limits_on: bool, remember_day
     return None
 
 
+def refreshed_marker(auth, now: int, endpoint):
+    """``auth`` with ``seen`` moved to ``now``, or ``None`` to leave it (a
+    passive endpoint, or rewritten less than ``SEEN_STEP_SECONDS`` ago)."""
+    if endpoint in PASSIVE_ENDPOINTS or now - auth['seen'] < SEEN_STEP_SECONDS:
+        return None
+    return dict(auth, seen=now)
+
+
 def start_auth(method: str, *, issuer: str | None = None, remember: bool = False) -> None:
     """Stamp the session marker right after ``login_user``."""
     t = now()
@@ -222,8 +233,10 @@ def enforce_session():
                            remember_days=remember_days())
     if reason:
         end_session(reason)
-    elif t - auth['seen'] >= SEEN_STEP_SECONDS:
-        session[AUTH_KEY] = dict(auth, seen=t)
+        return None
+    marker = refreshed_marker(auth, t, request.endpoint)
+    if marker is not None:
+        session[AUTH_KEY] = marker
     return None
 
 

@@ -1,39 +1,14 @@
 {% extends "base.html" %}
 {#
-   One request thread (/requests/<id>): messages as chat bubbles, agent
-   approval cards (Approve / Reject for admins of every linked subject),
-   status changes, linked questions (preview; Edit modal for subject admins),
-   and the reply box. Page names use the rq prefix.
+   One request thread (/requests/<id>): the body (messages, approval cards,
+   status, linked questions, reply box) lives in partials/request_thread_body.html
+   so GET /requests/<id>/live can re-render it. This page adds the image
+   preview modal, the Edit modal for subject admins, and the live poll.
+   Page names use the rq prefix.
    Spec: docs/modules/requests.md
 #}
 
 {% block title %}{{ t('Request #{id} - Question Bank', id=req.id) }}{% endblock %}
-
-{% macro utc(dt) %}{{ dt.strftime('%Y-%m-%dT%H:%M:%SZ') if dt else '' }}{% endmacro %}
-
-{% macro who(m) -%}
-    {%- if m.author_kind == 'agent' -%}{{ m.agent_name or t('AI agent') }}
-    {%- elif m.author_kind == 'system' -%}{{ t('System') }}
-    {%- else -%}{{ names.get(m.author_user_id) or t('Deleted user') }}{%- endif -%}
-{%- endmacro %}
-
-{% macro files(m) %}
-    {% set atts = attachments.get(m.id, []) %}
-    {% if atts %}
-    <div class="rq-atts d-flex flex-wrap gap-2 mt-2">
-        {% for a in atts %}
-        {% set href = url_for('support_requests.attachment', attachment_id=a.id) %}
-        {% if is_inline_image(a.mime) %}
-        <a href="{{ href }}" target="_blank" rel="noopener" title="{{ a.original_name }}"><img src="{{ href }}" class="rq-att-img" alt="{{ a.original_name }}" loading="lazy"></a>
-        {% else %}
-        <a href="{{ href }}" class="rq-att-file border rounded px-2 py-1 small text-decoration-none" title="{{ a.original_name }}">
-            <i class="bi bi-file-earmark-arrow-down"></i> {{ a.original_name }} <span class="text-muted">({{ (a.size / 1024) | round(0) | int }} KB)</span>
-        </a>
-        {% endif %}
-        {% endfor %}
-    </div>
-    {% endif %}
-{% endmacro %}
 
 {% block extra_css %}
 <style>
@@ -48,177 +23,39 @@
 .rq-note .rq-body-text { font-style: italic; }
 .rq-card { max-width: 92%; }
 .rq-att-img { max-width: 220px; max-height: 160px; border: 1px solid var(--bs-border-color); border-radius: .375rem; background: #fff; }
+a.rq-zoom { cursor: zoom-in; }
 .oqb-msg-code { background: var(--bs-tertiary-bg); padding: .5rem; border-radius: .375rem; white-space: pre-wrap; margin: .25rem 0; font-size: .85em; }
 .rq-preview img { width: 100%; display: block; margin-top: .25rem; border: 1px solid var(--bs-border-color); background: #fff; }
+.rq-zoom-body { background: var(--bs-tertiary-bg); min-height: 200px; }
+.rq-zoom-body img { max-width: 100%; max-height: 78vh; object-fit: contain; background: #fff; }
+.rq-new-pill { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); z-index: 1030; }
 </style>
 {% endblock %}
 
 {% block content %}
-{% set my_id = current_user.id %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
-        <div>
-            <a href="{{ url_for('support_requests.index') }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ t('Requests') }}</a>
-            <h3 class="mb-1"><span class="text-muted">#{{ req.id }}</span> {{ req.title }}</h3>
-            <div class="d-flex flex-wrap gap-2 align-items-center small">
-                <span class="badge {{ status_badges.get(req.status, 'bg-secondary') }}">{{ t(status_labels.get(req.status, 'Open')) }}</span>
-                <span class="badge text-bg-light border">{{ t(category_labels.get(req.category, 'General')) }}</span>
-                {% if req.subject_id %}<span class="badge text-bg-light border">{{ req.subject_id }}</span>{% endif %}
-                <span class="text-muted">{{ t('Reported by {name}', name=names.get(req.reporter_id) or t('Deleted user')) }} · <span data-utc="{{ utc(req.created_at) }}"></span></span>
-            </div>
-        </div>
-    </div>
+{% include 'partials/request_thread_body.html' %}
 
-    <div class="row g-4">
-        <div class="col-lg-8">
-            <div class="rq-thread mb-4">
-                {% for m in messages %}
-                {% set meta = load_meta(m.meta) %}
-                {% if m.kind == 'status_change' %}
-                <div class="rq-note">
-                    <i class="bi bi-arrow-repeat"></i>
-                    {{ t('{who} changed the status from {old} to {new}', who=who(m), old=t(status_labels.get(meta.get('from'), 'Open')), new=t(status_labels.get(meta.get('to'), 'Open'))) }}
-                    · <span data-utc="{{ utc(m.created_at) }}"></span>
-                    {% if m.body %}<div class="rq-body-text">{{ render_body(m.body) }}</div>{% endif %}
-                </div>
-                {% elif m.author_kind == 'system' %}
-                <div class="rq-note">
-                    <i class="bi bi-gear"></i> {{ render_body(m.body) }} · <span data-utc="{{ utc(m.created_at) }}"></span>
-                </div>
-                {% elif m.kind == 'approval_request' %}
-                <div class="card border-warning rq-card" id="msg-{{ m.id }}">
-                    <div class="card-header bg-warning-subtle small">
-                        <i class="bi bi-shield-exclamation"></i>
-                        {{ t('{who} asks for approval before changing anything', who=who(m)) }} · <span data-utc="{{ utc(m.created_at) }}"></span>
-                    </div>
-                    <div class="card-body">
-                        <div>{{ render_body(m.body) }}</div>
-                        {{ files(m) }}
-                        {% if pending_id == m.id %}
-                            {% if access.approve %}
-                            <hr>
-                            <textarea class="form-control form-control-sm mb-2" id="rqDecisionNote" rows="2"
-                                      placeholder="{{ t('Note for the agent (required to reject)') }}"></textarea>
-                            <div class="d-flex gap-2">
-                                <button type="button" class="btn btn-success btn-sm" onclick="rqDecide('approve')"><i class="bi bi-check-lg"></i> {{ t('Approve') }}</button>
-                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="rqDecide('reject')"><i class="bi bi-x-lg"></i> {{ t('Reject') }}</button>
-                            </div>
-                            <div class="small text-muted mt-2">{{ t('Approving lets the agent carry out this plan on its next run. It saves a restore point before tag changes.') }}</div>
-                            {% else %}
-                            <div class="small text-muted mt-2"><i class="bi bi-hourglass-split"></i> {{ t('Waiting for a subject admin to approve or reject.') }}</div>
-                            {% endif %}
-                        {% endif %}
-                    </div>
-                </div>
-                {% elif m.kind in ('approval', 'rejection') %}
-                <div class="card {{ 'border-success' if m.kind == 'approval' else 'border-danger' }} rq-card {{ 'align-self-end' if m.author_user_id == my_id }}">
-                    <div class="card-body py-2 small">
-                        {% if m.kind == 'approval' %}<i class="bi bi-check-circle text-success"></i> {{ t('{who} approved the plan', who=who(m)) }}
-                        {% else %}<i class="bi bi-x-circle text-danger"></i> {{ t('{who} rejected the plan', who=who(m)) }}{% endif %}
-                        · <span data-utc="{{ utc(m.created_at) }}"></span>
-                        {% if m.body %}<div class="mt-1">{{ render_body(m.body) }}</div>{% endif %}
-                    </div>
-                </div>
-                {% else %}
-                {% set mine = m.author_kind == 'user' and m.author_user_id == my_id %}
-                <div class="rq-msg {{ 'rq-mine' if mine }} {{ 'rq-agent' if m.author_kind == 'agent' }}" id="msg-{{ m.id }}">
-                    <div class="rq-meta {{ 'text-end' if mine }}">
-                        {% if m.author_kind == 'agent' %}<i class="bi bi-robot"></i>{% endif %}
-                        <strong>{{ who(m) }}</strong>
-                        {% if m.author_kind == 'user' and m.author_user_id != req.reporter_id %}<span class="badge text-bg-secondary">{{ t('Admin') }}</span>{% endif %}
-                        · <span data-utc="{{ utc(m.created_at) }}"></span>
-                    </div>
-                    <div class="rq-bubble">
-                        {% if m.body %}<div>{{ render_body(m.body) }}</div>{% endif %}
-                        {{ files(m) }}
-                    </div>
-                </div>
-                {% endif %}
-                {% endfor %}
-            </div>
+<button type="button" class="btn btn-primary btn-sm rounded-pill shadow d-none rq-new-pill" id="rqNewPill" onclick="rqScrollEnd()">
+    <i class="bi bi-arrow-down"></i> {{ t('New messages') }}
+</button>
 
-            {% if can_reply %}
-            <div class="card">
-                <div class="card-body">
-                    {% if access.reporter and req.status == 'needs_info' %}
-                    <div class="alert alert-warning py-2 small"><i class="bi bi-question-circle"></i> {{ t('More information is needed. Your reply sends the request back to the agent and admins.') }}</div>
-                    {% elif access.reporter and req.status == 'resolved' %}
-                    <div class="alert alert-success py-2 small"><i class="bi bi-check-circle"></i> {{ t('This request is marked resolved. Reply if the problem is still there; that reopens it.') }}</div>
-                    {% endif %}
-                    {% with composer_id='rqComposer', composer_rows=4, composer_placeholder=t('Write a reply. You can paste screenshots here.') %}{% include 'partials/request_composer.html' %}{% endwith %}
-                    <div class="d-flex justify-content-end mt-2">
-                        <button type="button" class="btn btn-primary btn-sm" id="rqSendBtn" onclick="rqSend()"><i class="bi bi-send"></i> {{ t('Send') }}</button>
-                    </div>
+<div class="modal fade" id="rqImageModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title text-truncate" id="rqImageTitle"></h6>
+                <span class="small text-muted ms-2 me-auto" id="rqImageCount"></span>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ t('Close') }}"></button>
+            </div>
+            <div class="modal-body p-2 text-center rq-zoom-body">
+                <img id="rqImageImg" alt="">
+            </div>
+            <div class="modal-footer py-2 justify-content-between">
+                <div class="btn-group btn-group-sm" id="rqImageNav">
+                    <button type="button" class="btn btn-outline-secondary" onclick="rqZoomStep(-1)"><i class="bi bi-chevron-left"></i> {{ t('Previous') }}</button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="rqZoomStep(1)">{{ t('Next') }} <i class="bi bi-chevron-right"></i></button>
                 </div>
-            </div>
-            {% else %}
-            <p class="text-muted small"><i class="bi bi-lock"></i> {{ t('This request is closed.') }}</p>
-            {% endif %}
-        </div>
-
-        <div class="col-lg-4">
-            {% if statuses %}
-            <div class="card mb-3">
-                <div class="card-header small fw-semibold">{{ t('Status') }}</div>
-                <div class="card-body">
-                    <select class="form-select form-select-sm mb-2" id="rqStatus">
-                        {% for s in statuses %}
-                        <option value="{{ s }}">{{ t(status_labels[s]) }}</option>
-                        {% endfor %}
-                    </select>
-                    <input type="text" class="form-control form-control-sm mb-2" id="rqStatusNote" maxlength="2000" placeholder="{{ t('Note (optional)') }}">
-                    <button type="button" class="btn btn-outline-primary btn-sm w-100" onclick="rqSetStatus()">{{ t('Change status') }}</button>
-                    {% if access.role == 'reporter' %}
-                    <div class="form-text">{{ t('Close the request when your problem is solved or no longer matters.') }}</div>
-                    {% endif %}
-                </div>
-            </div>
-            {% endif %}
-
-            <div class="card mb-3">
-                <div class="card-header small fw-semibold">{{ t('Questions') }} <span class="badge bg-secondary">{{ links|length }}</span></div>
-                {% if not links %}
-                <div class="card-body small text-muted">{{ t('No questions are linked to this request.') }}</div>
-                {% else %}
-                <ul class="list-group list-group-flush">
-                    {% for l in links %}
-                    {% set live_q = live.get(l.question_id) %}
-                    <li class="list-group-item small">
-                        <div class="d-flex justify-content-between align-items-center gap-2">
-                            <code>{{ live_q.qid if live_q else l.qid }}</code>
-                            <span class="d-flex gap-1">
-                                {% if live_q and l.question_id in viewable %}
-                                <button type="button" class="btn btn-outline-secondary btn-sm py-0" onclick="rqTogglePreview({{ l.question_id }}, this)" title="{{ t('Show the question') }}"><i class="bi bi-eye"></i></button>
-                                {% endif %}
-                                {% if live_q and l.question_id in editable %}
-                                <button type="button" class="btn btn-outline-primary btn-sm py-0" onclick="openEditModal({{ l.question_id }})" title="{{ t('Edit') }}"><i class="bi bi-pencil"></i></button>
-                                {% endif %}
-                            </span>
-                        </div>
-                        {% if not live_q %}<div class="text-muted">{{ t('This question no longer exists.') }}</div>
-                        {% elif live_q.qid != l.qid %}<div class="text-muted">{{ t('Reported as {qid}', qid=l.qid) }}</div>{% endif %}
-                        <div class="rq-preview d-none" id="rqPreview{{ l.question_id }}"></div>
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-            </div>
-
-            {% if batches %}
-            <div class="card mb-3">
-                <div class="card-header small fw-semibold"><i class="bi bi-ui-checks"></i> {{ t('Review batches') }}</div>
-                <ul class="list-group list-group-flush">
-                    {% for b in batches %}
-                    <li class="list-group-item small"><a href="{{ url_for('review.batch_page', batch_id=b.id) }}">#{{ b.id }} {{ b.title }}</a></li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            <div class="small text-muted">
-                <i class="bi bi-eye"></i>
-                {% if req.subject_id or links %}{{ t('Seen by the reporter, admins of the linked subjects, super admins and the AI agent.') }}
-                {% else %}{{ t('Seen by the reporter, super admins and the AI agent.') }}{% endif %}
+                <a class="btn btn-sm btn-outline-primary ms-auto" id="rqImageDownload" href="#"><i class="bi bi-download"></i> {{ t('Download') }}</a>
             </div>
         </div>
     </div>
@@ -229,9 +66,6 @@
 
 {% block extra_js %}
 {% include 'partials/request_composer_js.html' %}
-<script>
-document.querySelectorAll('[data-utc]').forEach(el => { el.textContent = window.oqbFormatLocalTime(el.dataset.utc); });
-</script>
 {% if editable %}
 <script>
 {% include 'partials/edit_question_modal_js.html' %}
@@ -243,6 +77,7 @@ const RQ = {
         message: {{ url_for('support_requests.post_message', request_id=req.id) | tojson }},
         status: {{ url_for('support_requests.set_status', request_id=req.id) | tojson }},
         approval: {{ url_for('support_requests.decide', request_id=req.id) | tojson }},
+        live: {{ url_for('support_requests.thread_live', request_id=req.id) | tojson }},
         preview: {{ url_for('dashboard.get_question_preview', question_id=0, asset_type='QUE') | tojson }},
     },
     busy: false,
@@ -259,6 +94,10 @@ function rqAlert(text) {
     else alert(text);
 }
 
+function rqLocalTimes(root) {
+    root.querySelectorAll('[data-utc]').forEach(el => { el.textContent = window.oqbFormatLocalTime(el.dataset.utc); });
+}
+
 async function rqSend() {
     if (!rqComposer || RQ.busy) return;
     if (rqComposer.isEmpty()) { rqComposer.error(OQB.t('Write a message or attach a file.')); rqComposer.focus(); return; }
@@ -269,7 +108,7 @@ async function rqSend() {
     const {data} = await oqbRequestPost(RQ.urls.message, fd);
     RQ.busy = false;
     document.getElementById('rqSendBtn').disabled = false;
-    if (data.success) { window.location.reload(); return; }
+    if (data.success) { rqComposer.clear(); rqPoll({toEnd: true}); return; }
     rqComposer.error(data.error || data.message || OQB.t('Could not send the message.'));
 }
 
@@ -280,7 +119,7 @@ async function rqSetStatus() {
     RQ.busy = true;
     const {data} = await oqbRequestPost(RQ.urls.status, {status, note});
     RQ.busy = false;
-    if (data.success) { window.location.reload(); return; }
+    if (data.success) { rqPoll({toEnd: true}); return; }
     rqAlert(data.error || data.message || OQB.t('Could not change the status.'));
 }
 
@@ -291,7 +130,7 @@ async function rqDecide(decision) {
     RQ.busy = true;
     const {data} = await oqbRequestPost(RQ.urls.approval, {decision, note});
     RQ.busy = false;
-    if (data.success) { window.location.reload(); return; }
+    if (data.success) { rqPoll({toEnd: true}); return; }
     alert(data.error || data.message || OQB.t('Could not save the decision.'));
 }
 
@@ -311,7 +150,7 @@ async function rqTogglePreview(questionId, btn) {
     if (!data || data.error) {
         box.innerHTML = `<div class="text-muted">${rqEsc((data && data.error) || OQB.t('Could not load the preview.'))}</div>`;
     } else if (data.mode === 'image') {
-        box.innerHTML = data.parts.map(p => `<a href="${rqEsc(p.url)}" target="_blank" rel="noopener"><img src="${rqEsc(p.url)}" alt="" loading="lazy"></a>`).join('');
+        box.innerHTML = data.parts.map(p => `<a href="${rqEsc(p.url)}" class="rq-zoom"><img src="${rqEsc(p.url)}" alt="" loading="lazy"></a>`).join('');
     } else if (data.mode === 'html') {
         window.oqbRenderMarkdownInto(box, data.html || '');
     } else if (data.mode === 'thumbnail') {
@@ -325,7 +164,179 @@ window.oqbAfterQuestionEdit = () => {
     document.querySelectorAll('.rq-preview').forEach(box => { delete box.dataset.loaded; box.classList.add('d-none'); box.innerHTML = ''; });
 };
 
-const rqLast = document.querySelector('.rq-thread > :last-child');
+// ---------------------------------------------------------------- image preview
+// A plain click on an .rq-zoom image opens the modal; Ctrl / Shift / middle
+// click keep the browser's own behaviour. Previous / Next walk the images of
+// the same [data-rq-gallery] (the thread, or one question preview).
+const RQ_ZOOM = {list: [], index: 0};
+
+function rqZoomShow() {
+    const a = RQ_ZOOM.list[RQ_ZOOM.index];
+    if (!a) return;
+    const img = document.getElementById('rqImageImg');
+    img.src = a.getAttribute('href');
+    img.alt = a.dataset.name || '';
+    document.getElementById('rqImageTitle').textContent = a.dataset.name || '';
+    const many = RQ_ZOOM.list.length > 1;
+    document.getElementById('rqImageCount').textContent = many ? `${RQ_ZOOM.index + 1} / ${RQ_ZOOM.list.length}` : '';
+    document.getElementById('rqImageNav').classList.toggle('invisible', !many);
+    const dl = document.getElementById('rqImageDownload');
+    dl.classList.toggle('d-none', !a.dataset.download);
+    dl.href = a.dataset.download || '#';
+}
+
+function rqZoomStep(delta) {
+    const n = RQ_ZOOM.list.length;
+    if (n < 2) return;
+    RQ_ZOOM.index = (RQ_ZOOM.index + delta + n) % n;
+    rqZoomShow();
+}
+
+document.addEventListener('click', (e) => {
+    const a = e.target.closest('a.rq-zoom');
+    if (!a || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    const gallery = a.closest('[data-rq-gallery]') || document;
+    RQ_ZOOM.list = Array.from(gallery.querySelectorAll('a.rq-zoom'));
+    RQ_ZOOM.index = Math.max(0, RQ_ZOOM.list.indexOf(a));
+    rqZoomShow();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('rqImageModal')).show();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (!document.getElementById('rqImageModal').classList.contains('show')) return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); rqZoomStep(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); rqZoomStep(1); }
+});
+
+// ---------------------------------------------------------------- live updates
+// Poll GET .../live (4 s while the tab is visible, 30 s in the background).
+// It answers {changed, html}; the regions below are swapped in place, so the
+// composer and anything typed in a swapped field survive. The poll is a
+// passive endpoint: it never keeps an idle session alive.
+const RQ_LIVE = {fast: 4000, slow: 30000, timer: null, busy: false, again: null, failures: 0,
+                 title: document.title, unseen: false};
+const RQ_LIVE_REGIONS = ['rqHeader', 'rqThread', 'rqStatusBox', 'rqBatches'];
+
+function rqState() {
+    const el = document.getElementById('rqThread');
+    return {last: parseInt((el && el.dataset.lastId) || '0', 10), status: (el && el.dataset.status) || ''};
+}
+
+function rqLastItem() { return document.querySelector('#rqThread > :last-child'); }
+
+function rqNearEnd() {
+    const last = rqLastItem();
+    return !last || last.getBoundingClientRect().top < window.innerHeight;
+}
+
+function rqScrollEnd() {
+    const last = rqLastItem();
+    if (last) last.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    document.getElementById('rqNewPill').classList.add('d-none');
+}
+
+function rqSaveFields() {
+    const saved = [];
+    const active = document.activeElement;
+    RQ_LIVE_REGIONS.concat('rqReplyNotice').forEach(id => {
+        const region = document.getElementById(id);
+        if (!region) return;
+        region.querySelectorAll('input[id], textarea[id], select[id]').forEach(el => {
+            saved.push({id: el.id, value: el.value, focused: el === active,
+                        start: el.selectionStart, end: el.selectionEnd});
+        });
+    });
+    return saved;
+}
+
+function rqRestoreFields(saved) {
+    saved.forEach(s => {
+        const el = document.getElementById(s.id);
+        if (!el) return;
+        if (el.tagName === 'SELECT' && !Array.from(el.options).some(o => o.value === s.value)) return;
+        el.value = s.value;
+        if (s.focused) {
+            el.focus();
+            try { if (s.start != null) el.setSelectionRange(s.start, s.end); } catch (e) { /* not a text field */ }
+        }
+    });
+}
+
+function rqSwap(doc, id) {
+    const cur = document.getElementById(id);
+    const next = doc.getElementById(id);
+    if (cur && next) cur.replaceWith(document.importNode(next, true));
+}
+
+function rqApply(html, opts) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const area = document.getElementById('rqReplyArea');
+    const nextArea = doc.getElementById('rqReplyArea');
+    if (area && nextArea && area.dataset.canReply !== nextArea.dataset.canReply) {
+        // The composer appears or goes (closed / reopened): reload unless a draft would be lost.
+        if (!rqComposer || rqComposer.isEmpty()) { window.location.reload(); return; }
+    }
+    const before = rqState().last;
+    const atEnd = opts.toEnd || rqNearEnd();
+    const saved = opts.toEnd ? [] : rqSaveFields();
+    RQ_LIVE_REGIONS.forEach(id => rqSwap(doc, id));
+    if (area && nextArea && area.dataset.canReply === nextArea.dataset.canReply) rqSwap(doc, 'rqReplyNotice');
+    rqRestoreFields(saved);
+    RQ_LIVE_REGIONS.forEach(id => { const el = document.getElementById(id); if (el) rqLocalTimes(el); });
+    if (rqState().last > before) {
+        if (atEnd) rqScrollEnd();
+        else document.getElementById('rqNewPill').classList.remove('d-none');
+        if (document.visibilityState !== 'visible') { RQ_LIVE.unseen = true; document.title = `● ${RQ_LIVE.title}`; }
+    }
+}
+
+function rqSchedule() {
+    clearTimeout(RQ_LIVE.timer);
+    if (RQ_LIVE.failures >= 8) return;  // signed out, thread gone or server down: stop
+    const base = document.visibilityState === 'visible' ? RQ_LIVE.fast : RQ_LIVE.slow;
+    RQ_LIVE.timer = setTimeout(() => rqPoll({}), base * (1 + RQ_LIVE.failures));
+}
+
+async function rqPoll(opts) {
+    opts = opts || {};
+    if (RQ_LIVE.busy) { RQ_LIVE.again = Object.assign(RQ_LIVE.again || {}, opts); return; }
+    clearTimeout(RQ_LIVE.timer);
+    RQ_LIVE.busy = true;
+    const s = rqState();
+    const qs = new URLSearchParams({after: s.last, status: s.status,
+                                    read: document.visibilityState === 'visible' ? '1' : '0'});
+    let data = null;
+    try {
+        const r = await fetch(`${RQ.urls.live}?${qs}`, {headers: {'Accept': 'application/json'}, cache: 'no-store'});
+        data = r.ok ? await r.json() : null;
+    } catch (e) { data = null; }
+    RQ_LIVE.busy = false;
+    if (data && data.success) {
+        RQ_LIVE.failures = 0;
+        if (data.changed && data.html) rqApply(data.html, opts);
+    } else {
+        RQ_LIVE.failures += 1;
+    }
+    if (RQ_LIVE.again) { const next = RQ_LIVE.again; RQ_LIVE.again = null; rqPoll(next); return; }
+    rqSchedule();
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (RQ_LIVE.unseen) { RQ_LIVE.unseen = false; document.title = RQ_LIVE.title; }
+    RQ_LIVE.failures = 0;
+    rqPoll({});
+});
+
+window.addEventListener('scroll', () => {
+    const pill = document.getElementById('rqNewPill');
+    if (!pill.classList.contains('d-none') && rqNearEnd()) pill.classList.add('d-none');
+}, {passive: true});
+
+rqLocalTimes(document);
+const rqLast = rqLastItem();
 if (rqLast && window.location.hash === '') rqLast.scrollIntoView({block: 'nearest'});
+rqSchedule();
 </script>
 {% endblock %}

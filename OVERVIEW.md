@@ -108,6 +108,7 @@ one or more super admins (users, subjects, settings, everything).
 | [020](docs/decisions/ADR-020-user-groups.md) | User groups add a per-subject role that members inherit; effective level is the highest of the personal grant, every group and SMS; groups never lower access, are not copied into personal grants or SMS, and never grant super admin |
 | [021](docs/decisions/ADR-021-agent-mcp-endpoint.md) | The AI agent reaches OQB only through `POST /mcp` (MCP over HTTP inside Flask): one `.env` bearer token with super-admin power + loopback IP allow-list, writes only through services, every write logged with a reason, approval is a playbook rule (soft gate), no delete tools |
 | [022](docs/decisions/ADR-022-requests-review-and-agent-writes.md) | Requests (chat threads with a status and an approval state) and Review (batches of stored `{field, old, new}` diffs applied through `question_edit_service`, which shares the Edit modal's field writer, stale check, decisions feed `tag_corrections`) are separate linked features; library writes live in `library_ops_service`, shared by admin routes and agent tools; module named `support_requests` |
+| [023](docs/decisions/ADR-023-agent-wake-webhook.md) | Optional outbound wake webhook (`AGENT_WAKE_WEBHOOK_URL`, `.env` only): when a person's action makes a request newly need the agent, OQB POSTs ids / status / title (no message text, no tokens) after the commit, best effort; the agent still works only through `/mcp`, which stays loopback |
 
 ## Documentation map
 

@@ -28,7 +28,11 @@ You reach OQB only through its MCP endpoint (`POST /mcp`; `docs/modules/agent-mc
 5. Threads in status `approved`: carry out exactly the plan that was approved, then post what you did and set `resolved`. If the plan was **rejected** (a `rejection` message, status back to `open`), read the note and either propose something else or explain.
 6. `list_review_batches(updated_since=<last run>)` and `get_review_batch` for batches you created: read the admins' decisions and notes, and learn from rejections.
 
+**Sending files back.** `post_message` takes `attachments: [{name, mime, data_base64}]` (the same count and size limits as teachers: `REQUESTS_MAX_ATTACHMENTS_PER_MESSAGE` files of `REQUESTS_MAX_ATTACHMENT_MB` each). PNG / JPEG / GIF / WebP show as images in the thread (teachers click them for a preview); anything else is a download. Use it for a marked-up screenshot, a corrected image, a before / after crop or a short report file. `replace_asset` already attaches the old files to the thread for you.
+
 Keep track of the time of your last run yourself and pass it as `updated_since` (ISO 8601 UTC, e.g. `2026-11-01T09:00:00Z`).
+
+**Woken by the webhook.** OQB may start your routine early through its webhook, with a JSON body `{event: "request.needs_agent", request_id, status, subject_id, title, last_message_at, questions}`. It is only a hint that a thread is waiting: it has no message text. Do a normal run (steps 1–5 above, `list_requests(needs_agent=true)` first, the woken `request_id` among them). If the thread no longer needs you by the time you look, do nothing for it.
 
 ## Request statuses
 
@@ -36,10 +40,10 @@ Keep track of the time of your last run yourself and pass it as `updated_since` 
 |---|---|---|
 | `open` | New, or a person replied | you or an admin |
 | `in_progress` | You are working on it (e.g. a review batch is waiting) | you |
-| `needs_info` | You asked the reporter something | the reporter's reply sets `open` |
+| `needs_info` | You asked the reporter something | a reply (reporter or admin) sets `open` |
 | `awaiting_approval` | You posted a plan with `request_approval` | a subject admin approves or rejects |
 | `approved` | An admin approved your plan | you: do it, then `resolved` |
-| `resolved` | Done | the reporter may reply, which reopens it |
+| `resolved` | Done | any reply (reporter or admin) reopens it |
 | `closed` | Finished for good | only an admin reopens |
 
 You may set `open`, `in_progress`, `needs_info`, `resolved` and `closed`. `awaiting_approval` is set by `request_approval`. Only a person can set `approved`.

@@ -137,9 +137,10 @@ def can_reply(role, status) -> bool:
 
 
 def status_after_reply(role, current) -> str:
-    """A reporter's answer puts a ``needs_info`` / ``resolved`` thread back in
-    the agent's queue; other replies keep the status."""
-    if role == 'reporter' and current in ('needs_info', 'resolved'):
+    """A person's answer (reporter or admin) puts a ``needs_info`` /
+    ``resolved`` thread back in the agent's queue; other statuses are kept,
+    so a remark on a ``closed`` thread wakes nobody."""
+    if role in ('reporter', 'manager') and current in ('needs_info', 'resolved'):
         return 'open'
     return current
 
@@ -652,6 +653,12 @@ def request_payload(req, *, links=None, names=None) -> dict:
         'questions': [{'qid': l.qid, 'question_id': l.question_id, 'subject_id': l.subject_id}
                       for l in links],
     }
+
+
+def last_message_id(request_id) -> int:
+    """Id of the thread's newest message (0 when empty): what the live poll compares."""
+    from app.models import SupportRequestMessage as M
+    return db.session.query(func.max(M.id)).filter(M.request_id == request_id).scalar() or 0
 
 
 def thread(req):

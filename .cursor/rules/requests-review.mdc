@@ -1,6 +1,6 @@
 ---
 description: Requests (issue threads, attachments, statuses, approval gate) and Review (batches of field diffs applied one question at a time) - visibility, state rules, restore points, file serving
-globs: app/support_requests.py,app/support_requests_service.py,app/review.py,app/review_service.py,app/question_edit_service.py,templates/requests_*.html,templates/partials/request_composer*.html,templates/admin_review*.html,tests/test_support_requests.py,tests/test_review_service.py,tests/test_question_edit_service.py
+globs: app/support_requests.py,app/support_requests_service.py,app/agent_wake.py,tests/test_agent_wake.py,tests/test_requests_live.py,templates/partials/request_thread_body.html,app/review.py,app/review_service.py,app/question_edit_service.py,templates/requests_*.html,templates/partials/request_composer*.html,templates/admin_review*.html,tests/test_support_requests.py,tests/test_review_service.py,tests/test_question_edit_service.py
 alwaysApply: false
 ---
 
@@ -11,9 +11,12 @@ Two linked features. Module names are `support_requests*` (not `requests`, which
 ## Requests invariants
 - Thread subjects = `subject_id` + linked questions' `subject_id` copies. **Visible:** reporter, admins of any of them, super admins (general thread: reporter + super). **Manage:** admin of any. **Approve:** admin of **every** one (super for general). Use `access_for` / `visible_filter`; never hand-roll a check in a route.
 - Status rules live in the pure `allowed_statuses` / `status_after_reply` / `needs_agent`. The agent may never set `approved`; only `decide_approval` does. Reject needs a note → status `open`.
+- `status_after_reply`: any person's reply (role `reporter` **or** `manager`; a reporter who is also an admin is `manager`) to `needs_info` / `resolved` → `open`; `closed` stays closed. Never key a rule on `role == 'reporter'` alone.
 - `last_actor_kind` drives the agent queue: a person's message / status change / decision sets it; `add_system_note` never does.
+- Agent wake webhook (ADR-023, `app/agent_wake.py`): every route where a person changes a thread reads `was_needed = srs.needs_agent(...)` before the change and calls `agent_wake.notify(req, was_needed)` **after** its commit. Never before the commit, never from agent tools. Payload = ids / status / title only (no message text, attachments, tokens); log the host only (the URL path may be a credential). Best effort: never let it fail the person's action. URL / secret are `.env` only.
 - Attachments: written only by `save_attachments` under `storage.request_dir(id)` via `safe_join`, served only by `/requests/attachment/<id>` after the visibility check; images inline, everything else `application/octet-stream` download, `nosniff`. Never serve the folder statically.
 - Message bodies are plain text rendered by `render_body` (escape first). Do not add markup without escaping.
+- Live thread: the page and `GET /requests/<id>/live` render the same `partials/request_thread_body.html`; the poll swaps `#rqHeader` / `#rqThread` / `#rqReplyNotice` / `#rqStatusBox` / `#rqBatches` by id (keep them; fields inside need ids to survive). `support_requests.thread_live` stays in `web_security.PASSIVE_ENDPOINTS` or open tabs defeat the idle limit. Images are `a.rq-zoom` (delegated preview modal), never `target="_blank"`.
 - Subject delete: `detach_subject` (threads become general); user erase nulls reporter / author / closed_by.
 - `REQUESTS_ENABLED` off → `/requests/*` 404 and Report buttons hidden (`requests_can_report()`, `window.OQB_REPORT_URL`).
 

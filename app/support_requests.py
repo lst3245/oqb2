@@ -15,7 +15,7 @@ from flask import (Blueprint, abort, current_app, jsonify, redirect, render_temp
 from flask_login import current_user, login_required
 from sqlalchemy import or_, select
 
-from app import authz, db
+from app import agent_wake, authz, db
 from app import support_requests_service as srs
 from app.i18n import t as _t
 from app.models import (Question, ReviewBatch, Subject, SupportRequest, SupportRequestAttachment,
@@ -243,6 +243,7 @@ def create():
         db.session.commit()
     except srs.RequestError as exc:
         return _fail(exc)
+    agent_wake.notify(req, False)
     url = url_for('.thread', request_id=req.id)
     if authz.wants_json():
         return _ok(id=req.id, url=url)
@@ -251,10 +252,9 @@ def create():
 
 # ---------------------------------------------------------------- thread
 
-@support_requests_bp.route('/<int:request_id>')
-@login_required
-def thread(request_id):
-    req, access = _request_or_404(request_id)
+def _thread_context(req, access):
+    """Template context of ``partials/request_thread_body.html`` (the page and
+    the live poll render the same markup)."""
     messages, attachments = srs.thread(req)
     links = srs.linked_questions([req.id])[req.id]
     live = {q.id: q for q in Question.query.filter(
@@ -266,12 +266,9 @@ def thread(request_id):
     if access.manage:
         batches = [b for b in ReviewBatch.query.filter_by(linked_request_id=req.id).order_by(ReviewBatch.id).all()
                    if authz.has_level(current_user, b.subject_id, 'admin')]
-    if messages:
-        srs.mark_read(current_user.id, req.id, messages[-1].id)
-        db.session.commit()
     pending = srs.pending_approval(req)
-    return render_template(
-        'requests_thread.html', req=req, access=access, messages=messages, attachments=attachments,
+    return dict(
+        req=req, access=access, messages=messages, attachments=attachments,
         links=links, live=live, viewable=viewable, editable=editable, names=names, batches=batches,
         pending_id=pending.id if pending else None,
         statuses=srs.allowed_statuses(access.role, req.status), can_reply=srs.can_reply(access.role, req.status),
@@ -280,10 +277,44 @@ def thread(request_id):
         limits=_limits())
 
 
+@support_requests_bp.route('/<int:request_id>')
+@login_required
+def thread(request_id):
+    req, access = _request_or_404(request_id)
+    ctx = _thread_context(req, access)
+    if ctx['messages']:
+        srs.mark_read(current_user.id, req.id, ctx['messages'][-1].id)
+        db.session.commit()
+    return render_template('requests_thread.html', **ctx)
+
+
+@support_requests_bp.route('/<int:request_id>/live')
+@login_required
+def thread_live(request_id):
+    """Polled by the open thread page. ``?after=<last message id>&status=``
+    is what the page shows; answers ``{success, changed, last_message_id,
+    status}`` plus the re-rendered body as ``html`` when something changed.
+    ``read=1`` (the tab is visible) marks the thread read. A passive endpoint
+    (``web_security.PASSIVE_ENDPOINTS``): it never counts as activity."""
+    req, access = _request_or_404(request_id)
+    last_id = srs.last_message_id(req.id)
+    changed = (last_id != request.args.get('after', 0, type=int)
+               or req.status != (request.args.get('status') or ''))
+    if request.args.get('read') == '1' and last_id:
+        srs.mark_read(current_user.id, req.id, last_id)
+        if db.session.new or db.session.dirty:
+            db.session.commit()
+    out = {'changed': changed, 'last_message_id': last_id, 'status': req.status}
+    if changed:
+        out['html'] = render_template('partials/request_thread_body.html', **_thread_context(req, access))
+    return _ok(**out)
+
+
 @support_requests_bp.route('/<int:request_id>/messages', methods=['POST'])
 @login_required
 def post_message(request_id):
     req, access = _request_or_404(request_id)
+    was_needed = srs.needs_agent(req.status, req.last_actor_kind)
     try:
         files = _uploads()
         msg = srs.reply(req, access, user_id=current_user.id, body=request.form.get('body'), files=files)
@@ -291,6 +322,7 @@ def post_message(request_id):
         db.session.commit()
     except srs.RequestError as exc:
         return _fail(exc)
+    agent_wake.notify(req, was_needed)
     if authz.wants_json():
         return _ok(message_id=msg.id, status=req.status)
     return redirect(url_for('.thread', request_id=req.id))
@@ -300,6 +332,7 @@ def post_message(request_id):
 @login_required
 def set_status(request_id):
     req, access = _request_or_404(request_id)
+    was_needed = srs.needs_agent(req.status, req.last_actor_kind)
     data = _payload()
     try:
         msg = srs.set_status(req, (data.get('status') or '').strip(), role=access.role,
@@ -308,6 +341,7 @@ def set_status(request_id):
         db.session.commit()
     except srs.RequestError as exc:
         return _fail(exc, 403 if access.role is None else 400)
+    agent_wake.notify(req, was_needed)
     if authz.wants_json():
         return _ok(status=req.status)
     return redirect(url_for('.thread', request_id=req.id))
@@ -323,6 +357,7 @@ def decide(request_id):
     decision = (data.get('decision') or '').strip().lower()
     if decision not in ('approve', 'reject'):
         return _fail(_t('Choose approve or reject.'))
+    was_needed = srs.needs_agent(req.status, req.last_actor_kind)
     try:
         msg = srs.decide_approval(req, approve=decision == 'approve', user_id=current_user.id,
                                   note=srs.clip(data.get('note'), srs.MAX_BODY))
@@ -330,6 +365,7 @@ def decide(request_id):
         db.session.commit()
     except srs.RequestError as exc:
         return _fail(exc)
+    agent_wake.notify(req, was_needed)
     if authz.wants_json():
         return _ok(status=req.status)
     return redirect(url_for('.thread', request_id=req.id))

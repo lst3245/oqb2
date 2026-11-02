@@ -69,7 +69,7 @@ R = read, W = write (logged; needs `reason`), N = also posts a line to the threa
 
 ## Settings & config keys
 
-`AGENT_MCP_ENABLED` (default off), `AGENT_MCP_ALLOWED_IPS` (default `127.0.0.1,::1`), `AGENT_DEFAULT_NAME` (System Settings, group "AI agent"); `AGENT_API_TOKEN` (`.env` only). See [../core/06-system-settings.md](../core/06-system-settings.md).
+`AGENT_MCP_ENABLED` (default off), `AGENT_MCP_ALLOWED_IPS` (default `127.0.0.1,::1`), `AGENT_DEFAULT_NAME` (System Settings, group "AI agent"); `AGENT_API_TOKEN`, `AGENT_WAKE_WEBHOOK_URL`, `AGENT_WAKE_WEBHOOK_SECRET` (`.env` only). See [../core/06-system-settings.md](../core/06-system-settings.md).
 
 ## Permissions
 
@@ -77,7 +77,9 @@ The token is a super admin for every tool. There is no agent user account; messa
 
 ## Background work / SSE / threads
 
-None. Every call runs inside its request; the agent polls on its own schedule.
+Every `/mcp` call runs inside its request; the agent polls on its own schedule.
+
+**Wake webhook (optional, [ADR-023](../decisions/ADR-023-agent-wake-webhook.md)).** With `AGENT_WAKE_WEBHOOK_URL` set (a Grok Bot routine's webhook), the Requests routes POST a notice when a person's action makes a thread newly need the agent, so the routine can start at once instead of at its next scheduled run. The routine then works exactly as on a scheduled run: `POST /mcp`, `list_requests(needs_agent=true)`, `get_request`. The webhook is outbound only; it does not change `/mcp` access (`AGENT_MCP_ALLOWED_IPS` stays loopback). Payload, timing and dedupe: [requests.md](requests.md#background-work--sse--threads).
 
 ## Gotchas
 
@@ -92,4 +94,4 @@ None. Every call runs inside its request; the agent polls on its own schedule.
 ## Related
 
 - [review.md](review.md), [requests.md](requests.md), [subject-snapshots.md](subject-snapshots.md), [admin-questions.md](admin-questions.md) (rename, set parent, upload: the web side of `library_ops_service`), [question-hierarchy.md](question-hierarchy.md)
-- [ADR-021](../decisions/ADR-021-agent-mcp-endpoint.md), [ADR-022](../decisions/ADR-022-requests-review-and-agent-writes.md), [../agents/PLAYBOOK.md](../agents/PLAYBOOK.md)
+- [ADR-021](../decisions/ADR-021-agent-mcp-endpoint.md), [ADR-022](../decisions/ADR-022-requests-review-and-agent-writes.md), [ADR-023](../decisions/ADR-023-agent-wake-webhook.md), [../agents/PLAYBOOK.md](../agents/PLAYBOOK.md)

@@ -97,6 +97,12 @@ class Config:
     AGENT_MCP_ALLOWED_IPS = os.getenv('AGENT_MCP_ALLOWED_IPS', '127.0.0.1,::1').strip()
     # [tunable] Name shown on agent messages when the agent sends none.
     AGENT_DEFAULT_NAME = os.getenv('AGENT_DEFAULT_NAME', 'AI agent').strip() or 'AI agent'
+    # Env-only (the URL may embed a capability token). Agent wake webhook:
+    # POSTed when a person's action puts a request in the agent queue
+    # (app/agent_wake.py). Empty = off. HTTPS, or http to localhost.
+    AGENT_WAKE_WEBHOOK_URL = os.getenv('AGENT_WAKE_WEBHOOK_URL', '').strip()
+    # Env-only secret, sent as "Authorization: Bearer" and "X-Webhook-Secret".
+    AGENT_WAKE_WEBHOOK_SECRET = os.getenv('AGENT_WAKE_WEBHOOK_SECRET', '').strip()
     # [tunable] Issue reports (Requests) on / off.
     REQUESTS_ENABLED = os.getenv('REQUESTS_ENABLED', '1').strip().lower() in ('1', 'true', 'yes', 'on')
     # [tunable] Lowest subject level that may open a report: viewer / user / admin.

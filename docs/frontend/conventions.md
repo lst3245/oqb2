@@ -148,6 +148,7 @@ The same panel pattern (Configure → Review with a dry run → Run with log) is
 ## Polling conventions
 
 - `generate.html` polls `GET /generate/status/<id>` every 2 s until `completed` / `failed`.
+- `requests_thread.html` polls `GET /requests/<id>/live` (4 s visible / 30 s hidden) and swaps server-rendered regions by id, keeping field values and focus ([../modules/requests.md](../modules/requests.md)). An open-ended poll like this must be listed in `web_security.PASSIVE_ENDPOINTS` so it does not keep an idle session alive.
 - `my_files.html` refreshes every 5 s only while a row has `.status-generating`; only sections containing in-progress files are re-fetched.
 
 ## localStorage keys in use
