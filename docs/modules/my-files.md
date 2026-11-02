@@ -12,7 +12,7 @@
 | `templates/saved_gen_profiles.html` | Manage page for generation presets. |
 | `templates/dashboard.html` | Save-profile modal (`saveFilterProfile()` → `/user/profiles/save`), Load-profile dropdown (`#filterProfileMenu`, `loadFilterProfilesDropdown()`, `onFilterProfileSelect()`), `?profile_id=` / `?filter_data_id=` handlers. |
 | `templates/generate.html` | Presets bar (load dropdown, Save-as-preset modal, Manage link); `getCurrentGenerationOptions()` / `restoreGenerationOptions()`. |
-| `app/generator.py` | `generated_file_dir()`, `_pdf_sibling_filename()`, `download_pdf` (route `/generate/pdf/<id>`), and `create_document()` which assigns new files to the owner's default section. |
+| `app/generator.py` | `generated_file_dir()`, `_pdf_sibling_filename()`, `build_pdf` / `pdf_status` / `download_pdf`, and `create_document()` which assigns new files to the owner's default section. |
 | `app/models.py` | `FileSection`, `FileShare`, `GeneratedFile`, `SavedFilter`, `SavedGenerationProfile`. |
 
 ## Tables
@@ -84,7 +84,9 @@ All `@login_required`. Authz is inline; "owner" means `user_id == current_user.i
 | DELETE | `/user/files/<int:id>` | `_user_owns_file` | Deletes the row plus the on-disk file **and any cached PDF sibling** (`_remove_file_and_pdf_sibling`). |
 | POST | `/user/files/bulk-delete` | per-row `_user_owns_file` | Body `{ids:[]}`. |
 | POST | `/user/files/bulk-download` | per-row `_user_can_view_file` | Body `{ids:[]}` → in-memory ZIP `my-files-<ts>.zip` (`application/zip`). Skips non-completed, non-visible and missing-on-disk rows; names are `display_name + ext` with illegal chars replaced and ` (2)`, ` (3)` dedupe. 400 if nothing downloadable. |
-| GET | `/generate/pdf/<int:id>` (in `generator_bp`) | `_user_can_view_file` | **Lazy PDF**: serve cached sibling or build synchronously via Word COM. JSON errors 403 / 409 / 400 / 404 / 503 / 500. See [generator.md](generator.md). |
+| POST | `/generate/pdf/<int:id>/build` (in `generator_bp`) | `files_policy.can_download` | Start the background Word export. `{status: ready\|building}`. See [generator.md](generator.md) |
+| GET | `/generate/pdf/<int:id>/status` (in `generator_bp`) | `files_policy.can_download` | `{status: ready\|building\|failed\|absent}`. Polled every 2 s while the button spinner is up |
+| GET | `/generate/pdf/<int:id>` (in `generator_bp`) | `files_policy.can_download` | **Send the cached PDF.** 409 when it is not built yet. JSON errors 403 / 409 / 400 / 404. See [generator.md](generator.md) |
 
 File row shape (`_serialise_file_row`): `{id, display_name, filename, file_ext, status, error_message, question_count, has_filter, has_generation_options, format_priority_top, output_format, pdf_supported, pdf_available, username, shared_by, is_read_only, section_id, size_bytes, created_at, completed_at}`. `pdf_supported` = filename is `.docx`/`.zip` and status completed; `pdf_available` = sibling exists on disk (checked in `generated_file_dir(gf)`).
 
@@ -106,7 +108,7 @@ File row shape (`_serialise_file_row`): `{id, display_name, filename, file_ext, 
 - **Status lifecycle**: `pending → generating → completed | failed`. The page polls every 5 s but only re-fetches sections that contain a `.status-generating` row.
 - **Manual ordering**: `/files/reorder` writes `manual_position` and flips the section to `sort_field='manual'`, so the order the user just made is what they see.
 - **Rename is DB-only**: disk `filename` never changes; download names use `display_name`.
-- **Lazy PDF**: rows expose `pdf_supported` / `pdf_available`; the button is an `<a href>` to `/generate/pdf/<id>` when cached, else a `<button>` running `buildAndDownloadPdf()` (fetch + spinner + blob save + section reload). Hidden when `pdf_supported=false` (legacy `.pdf` rows). Deleting a row removes the sibling too.
+- **Lazy PDF**: rows expose `pdf_supported` / `pdf_available`; the button is an `<a href>` to `/generate/pdf/<id>` when cached, else a `<button>` running `buildAndDownloadPdf()` (`POST .../build`, poll `.../status`, then a normal link download + section reload). Hidden when `pdf_supported=false` (legacy `.pdf` rows). Deleting a row removes the sibling too.
 - **Starring**: `is_starred` on all three profile tables; list endpoints return starred first; Dashboard / Generate dropdowns group them under a Starred optgroup.
 - **Sharing profiles/presets**: only super admins toggle `is_shared`; shared rows appear in every user's lists and dropdowns ("Shared by admins" group with the owner's name), show a green Shared badge + owner username on manage pages, and non-owners cannot delete or star them. `/data` for shared profiles/presets is open to any logged-in user (unlike question sets, which also require subject access).
 - **Profiles are options only**: `SavedGenerationProfile.options_data` never contains `question_ids` (stripped both sides); `SavedFilter` never stores a selection.
@@ -155,7 +157,7 @@ Details: [../core/02-auth-and-permissions.md](../core/02-auth-and-permissions.md
 ## Background work / SSE / threads
 
 - No SSE. `my_files.html` polls `/user/files/list` for sections containing `.status-generating` rows every 5 s.
-- Lazy PDF (`/generate/pdf/<id>`) runs Word COM synchronously in the request thread under the global Word lock.
+- Lazy PDF (`POST /generate/pdf/<id>/build`) runs Word COM on a daemon thread under the global Word lock. The button polls `/status`; `GET /pdf/<id>` only sends the finished file. A request that waited on Word returned 504 from the reverse proxy once the export outlasted the proxy's read timeout.
 - File generation itself happens on the generator's background thread ([generator.md](generator.md)); this module only reads `status`.
 
 ## Gotchas

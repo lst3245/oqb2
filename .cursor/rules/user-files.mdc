@@ -11,7 +11,7 @@ alwaysApply: false
 - Read gate `_user_can_view_file` (owner, super admin, direct or section share); write gate `_user_owns_file` (owner or super admin). Section shares resolve at query time (transitive, never materialised). Share toggles are super-admin only.
 - Viewers (`can_generate()` false) get 403 on `/user/files` and cannot create sections.
 - Delete removes the DB row, the file, and its PDF sibling; rename is DB-only. `/user/files/reorder` sets `manual_position` and flips the section to `manual/asc`.
-- Lazy PDF button is driven by row fields `pdf_supported` / `pdf_available` and calls `GET /generate/pdf/<id>`. Every download path uses `files_policy.can_download` (share recipients need read access to every subject of the file); `/files/<id>/filter` and `/generation_options` scrub out-of-scope ids with `files_policy.scrub`. `/user/files/list` is 403 for viewers.
+- Lazy PDF button is driven by row fields `pdf_supported` / `pdf_available`. Cached rows link to `GET /generate/pdf/<id>`; the first click `POST`s `.../build` and polls `.../status`. Every download path uses `files_policy.can_download` (share recipients need read access to every subject of the file); `/files/<id>/filter` and `/generation_options` scrub out-of-scope ids with `files_policy.scrub`. `/user/files/list` is 403 for viewers.
 - Search is server-side (`q=`, 250 ms debounce); poll every 5 s only while `.status-generating` exists; both SortableJS lists need `preventOnFilter: false`.
 - ZIP bulk download is built in memory (`io.BytesIO`); fine at current sizes.
 

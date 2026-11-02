@@ -33,7 +33,9 @@
 | POST | `/admin/questions/<int:question_id>/assets/<int:asset_id>/rerender-thumb` | `@admin_required` (subject admin) | Delete cached PNG and `force_rerender(asset_id)` (bypasses cooldown). Drives the per-preview Re-render button. |
 | GET | `/admin/health/doc-thumbnails/backfill?force=0|1` | `@super_admin_required` | **SSE**: render missing PNGs (`force=0`) or every DOC (`force=1`). |
 | POST | `/admin/health/doc-thumbnails/clear` | `@super_admin_required` | Delete every cached PNG under `DOC_THUMBNAIL_PATH`; lazy resolver recreates on demand. |
-| GET | `/generate/pdf/<int:file_id>` | `@login_required` + `_user_can_view_file` (owner / super admin / shared-with) | Lazy PDF for a completed `GeneratedFile`: serve the sibling if present, else build it via Word (`_build_pdf_from_docx` or `_build_pdf_zip_from_docx_zip`), cache next to the source, then send. Errors are JSON: 403 access, 409 not completed, 400 not convertible, 404 source missing, 503 Word unavailable, 500 build failed. |
+| POST | `/generate/pdf/<int:file_id>/build` | `@login_required` + `files_policy.can_download` | Start the background export (`_build_pdf_from_docx` / `_build_pdf_zip_from_docx_zip`). JSON `{status: ready\|building}`. 503 when Word is unavailable |
+| GET | `/generate/pdf/<int:file_id>/status` | `@login_required` + `files_policy.can_download` | `{status: ready\|building\|failed\|absent}` |
+| GET | `/generate/pdf/<int:file_id>` | `@login_required` + `files_policy.can_download` | Send the cached sibling only. 409 when it is not on disk yet. Other JSON errors: 403 access, 409 not completed, 400 not convertible, 404 source missing |
 | GET | `/admin/questions/batch-generate-images` | `@admin_required` | **SSE** batch DOC/MD → IMG (params in `admin-panel.md`). |
 | POST | `/admin/questions/<int:question_id>/assets/upload` | `@admin_required` | Upload `.docx` into a slot; rejects a second DOC in the same slot; fires `on_doc_asset_created`. |
 | POST/DELETE | `/admin/questions/<int:question_id>/assets/<int:asset_id>/delete` | `@admin_required` | Delete; fires `on_doc_asset_deleted` / `on_img_asset_deleted`. |
@@ -50,8 +52,8 @@ Generation routes (`POST /generate/create`, `/generate/status/<id>`, `/generate/
 4. **Global lock**: `_WORD_COM_LOCK = threading.Lock()` — exactly one Word session per process across generation jobs, lazy PDF builds, thumbnail renders, and batch IMG. `word_session(lock_timeout=WORD_COM_LOCK_TIMEOUT)` raises `TimeoutError` ("another generation is in progress") when the wait exceeds the bound. The lock is non-reentrant.
 5. **Fresh Word per session**: `win32com.client.DispatchEx('Word.Application')` starts a NEW WINWORD.EXE (never attaches to an interactive user's instance). `Visible=False`, `DisplayAlerts=wdAlertsNone`, `ScreenUpdating=False`. `pythoncom.CoInitialize()`/`CoUninitialize()` bracket the session in the calling thread. Callers must be in a background thread.
 6. **Cleanup**: on exit `word.Quit(SaveChanges=wdDoNotSaveChanges)`; if Quit raises, `_kill_word_processes_started_after(session_start)` kills WINWORD.EXE processes created since the session began (psutil), or falls back to `taskkill /f /im WINWORD.EXE` (kills ALL Word instances — acceptable only on a dedicated server). The lock is always released in `finally`.
-7. **Non-Windows / no pywin32**: `word_com.IS_AVAILABLE` is False (probed once at import, gated on `sys.platform == 'win32'`). Entry points raise `WordComUnavailable`. The DOC branch of generation falls back to an italic placeholder line, thumbnails are silently skipped, and `GET /generate/pdf/<id>` returns 503.
-8. **Output format at generation time is always DOCX.** `create_document` pins `output_format = 'DOCX'` and there is no create-time Output Format radio. PDF is produced lazily from My Files / the Generate success banner via `GET /generate/pdf/<id>`.
+7. **Non-Windows / no pywin32**: `word_com.IS_AVAILABLE` is False (probed once at import, gated on `sys.platform == 'win32'`). Entry points raise `WordComUnavailable`. The DOC branch of generation falls back to an italic placeholder line, thumbnails are silently skipped, and `POST /generate/pdf/<id>/build` returns 503.
+8. **Output format at generation time is always DOCX.** `create_document` pins `output_format = 'DOCX'` and there is no create-time Output Format radio. PDF is produced lazily from My Files / the Generate success banner: `POST /generate/pdf/<id>/build`, then `GET /generate/pdf/<id>` once the sibling exists.
 
 ### Generation merge (DOC-specific part only)
 
@@ -162,14 +164,14 @@ External dependencies (see `../core/01-runtime-and-ops.md`): Microsoft Word (wit
 - Thumbnail PNG: any logged-in user with `has_subject_access(question.subject)` (super admin bypass).
 - Rerender single thumbnail, upload/delete DOC, batch IMG: `@admin_required` (subject admin for that question).
 - Backfill / clear all thumbnails: `@super_admin_required`.
-- Lazy PDF: anyone who can view the `GeneratedFile` (`_user_can_view_file`).
+- Lazy PDF: `files_policy.can_download` on `/generate/pdf/<id>`, `/build` and `/status`.
 - Word COM tunables: super admin via System Settings.
 
 ## Background work / SSE / threads
 
 - Generation runs in a daemon thread spawned from `create_document`; Word merge happens inside it.
 - Thumbnail renders: daemon threads from `schedule_thumbnail` / `ensure_thumbnail` / `force_rerender`, serialised by the global Word lock.
-- `GET /generate/pdf/<id>` is **synchronous**: the request holds until Word finishes (and waits on the lock up to `WORD_COM_LOCK_TIMEOUT`).
+- PDF export runs on a daemon thread started by `POST /generate/pdf/<id>/build`. It waits on the lock up to `WORD_COM_LOCK_TIMEOUT`. `GET /generate/pdf/<id>` does not run Word.
 - SSE: `/admin/health/doc-thumbnails/backfill`, `/admin/questions/batch-generate-images`.
 
 ## Gotchas

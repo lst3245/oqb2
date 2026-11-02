@@ -3106,6 +3106,7 @@
   "Source file not found on disk.": "磁碟上找不到來源檔案。",
   "PDF generation requires Microsoft Word + pywin32 on the server, which is not available.": "生成 PDF 需要伺服器上的 Microsoft Word + pywin32，目前不可用。",
   "PDF generation failed: {error}": "PDF 生成失敗：{error}",
+  "PDF is not ready yet.": "PDF 尚未準備好。",
   "_section_markup": "Phase 2: markup",
   "Markup tools": "標註工具",
   "Pan": "平移",

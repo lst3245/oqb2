@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## Invariants
 - Create always produces **DOCX** (or a ZIP of DOCX for split jobs); `create_document()` pins `output_format='DOCX'`. There is no Output Format radio; the `onOutputFormatChange` shim and PDF branches in `_generate_in_background` are dead code — do not resurrect them.
-- **PDF is lazy**: `GET /generate/pdf/<int:file_id>` runs Word synchronously, writes a sibling (`x.docx → x.pdf`, `x.zip → x.pdf.zip`), caches on disk, returns JSON errors 403/409/400/404/503/500. Deleting the file removes the PDF.
+- **PDF is lazy and off the request**: `POST /generate/pdf/<id>/build` starts Word on a daemon thread (sibling `x.docx → x.pdf`, `x.zip → x.pdf.zip`, written via `*.part` then rename). The button polls `GET .../status`. `GET /generate/pdf/<id>` only sends a finished sibling (409 when missing). Do not build inside that GET — a silent request 504s at the reverse proxy. Deleting the file removes the PDF.
 - Output goes to `storage.ensure_user_generated_dir(user)` (`User/<name>/generated/`); resolve existing files with `generated_file_dir()` (legacy `OUTPUT_PATH` fallback). Never write to `OUTPUT_PATH` directly.
 - Generation runs in a daemon thread that receives `current_app._get_current_object()`; status `pending → generating → completed|failed`, polled via `GET /generate/status/<id>`; stale rows are failed at boot.
 - One `word_session` per job; `_WORD_COM_LOCK` is global and non-reentrant; `word_com.IS_AVAILABLE` is the single gate. DOC slots merge via marker `__OQB_DOC_INSERT_<uuid>__` + `Selection.InsertFile` of a sectPr-stripped copy (master layout wins). Never use docxcompose for DOC.

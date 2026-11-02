@@ -1358,6 +1358,40 @@ def _pdf_sibling_exists(output_path: str, gen_file) -> bool:
     return os.path.exists(os.path.join(output_path, sib))
 
 
+# In-process PDF builds. The HTTP handlers only schedule and report;
+# Word runs on a daemon thread so a reverse proxy never sits on a silent
+# request for the whole export (that is the 504 on a large set).
+_pdf_build_lock = threading.Lock()
+_pdf_builds = {}  # file_id -> {'status': 'building'|'failed', 'error': str|None}
+
+
+def _pdf_build_state(file_id):
+    """``(status, error)`` where status is ``building``, ``failed`` or ``absent``."""
+    with _pdf_build_lock:
+        job = _pdf_builds.get(file_id)
+        if not job:
+            return 'absent', None
+        return job['status'], job.get('error')
+
+
+def _mark_pdf_build(file_id, status, error=None):
+    with _pdf_build_lock:
+        if status == 'ready':
+            _pdf_builds.pop(file_id, None)
+        else:
+            _pdf_builds[file_id] = {'status': status, 'error': error}
+
+
+def _begin_pdf_build(file_id) -> bool:
+    """Reserve the job. False when a build for this file is already running."""
+    with _pdf_build_lock:
+        job = _pdf_builds.get(file_id)
+        if job and job['status'] == 'building':
+            return False
+        _pdf_builds[file_id] = {'status': 'building', 'error': None}
+        return True
+
+
 def _build_pdf_from_docx(app, src_docx_path: str, dst_pdf_path: str) -> None:
     """Convert one DOCX to PDF using the shared Word session. Caller already
     owns the COM lock; this is just the per-file step.
@@ -1410,58 +1444,161 @@ def _build_pdf_zip_from_docx_zip(app, src_zip_path: str, dst_zip_path: str) -> N
                 out_zf.write(abs_path, arcname)
 
 
+def _pdf_json(payload, status=200):
+    resp = jsonify(payload)
+    resp.status_code = status
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _pdf_precheck(file_id):
+    """Shared gate for the lazy-PDF routes.
+
+    Returns ``((gen_file, src_path, pdf_path), None)`` or ``(None, response)``.
+    """
+    gen_file = GeneratedFile.query.get_or_404(file_id)
+    if not files_policy.can_download(gen_file, current_user):
+        return None, _pdf_json({'error': _t('Access denied')}, 403)
+    if gen_file.status != 'completed':
+        return None, _pdf_json({
+            'error': _t('File is not ready yet — wait for generation to finish.'),
+        }, 409)
+    sibling_filename = _pdf_sibling_filename(gen_file.filename)
+    if sibling_filename is None:
+        return None, _pdf_json({
+            'error': _t('This file is not convertible to PDF (already a PDF or unsupported type).'),
+        }, 400)
+    output_path = generated_file_dir(gen_file)
+    src_path = os.path.join(output_path, gen_file.filename)
+    pdf_path = os.path.join(output_path, sibling_filename)
+    if not os.path.exists(src_path):
+        return None, _pdf_json({'error': _t('Source file not found on disk.')}, 404)
+    return (gen_file, src_path, pdf_path), None
+
+
+def _schedule_pdf_build(file_id):
+    if not _begin_pdf_build(file_id):
+        return
+    app = current_app._get_current_object()
+    threading.Thread(
+        target=_run_pdf_build,
+        args=(app, file_id),
+        daemon=True,
+        name=f'pdf-build-{file_id}',
+    ).start()
+
+
+def _run_pdf_build(app, file_id):
+    """Build the PDF sibling off the request thread. Writes ``*.part`` then renames."""
+    tmp_path = None
+    with app.app_context():
+        try:
+            gen_file = GeneratedFile.query.get(file_id)
+            if gen_file is None:
+                _mark_pdf_build(file_id, 'failed', 'File not found.')
+                return
+            sibling = _pdf_sibling_filename(gen_file.filename)
+            if not sibling:
+                _mark_pdf_build(file_id, 'failed', 'This file is not convertible to PDF.')
+                return
+            output_path = generated_file_dir(gen_file)
+            src_path = os.path.join(output_path, gen_file.filename)
+            pdf_path = os.path.join(output_path, sibling)
+            if os.path.exists(pdf_path):
+                _mark_pdf_build(file_id, 'ready')
+                return
+            if not os.path.exists(src_path):
+                _mark_pdf_build(file_id, 'failed', 'Source file not found on disk.')
+                return
+            if not word_com.IS_AVAILABLE:
+                _mark_pdf_build(
+                    file_id, 'failed',
+                    'PDF generation requires Microsoft Word + pywin32 on the server, '
+                    'which is not available.',
+                )
+                return
+            tmp_path = pdf_path + '.part'
+            if gen_file.filename.lower().endswith('.zip'):
+                _build_pdf_zip_from_docx_zip(app, src_path, tmp_path)
+            else:
+                _build_pdf_from_docx(app, src_path, tmp_path)
+            os.replace(tmp_path, pdf_path)
+            tmp_path = None
+            _mark_pdf_build(file_id, 'ready')
+        except Exception as e:
+            logger.exception('PDF build failed for gen_file_id=%s', file_id)
+            _mark_pdf_build(file_id, 'failed', str(e))
+        finally:
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+
+@generator_bp.route('/pdf/<int:file_id>/build', methods=['POST'])
+@login_required
+def build_pdf(file_id):
+    """Start a background Word export. Returns immediately.
+
+    ``{status: ready}`` when the sibling is already on disk, otherwise
+    ``{status: building}``. The browser polls ``pdf_status`` and then
+    downloads with ``download_pdf``.
+    """
+    ctx, err = _pdf_precheck(file_id)
+    if err:
+        return err
+    gen_file, _src, pdf_path = ctx
+    if os.path.exists(pdf_path):
+        _mark_pdf_build(gen_file.id, 'ready')
+        return _pdf_json({'status': 'ready'})
+    if not word_com.IS_AVAILABLE:
+        return _pdf_json({
+            'error': _t('PDF generation requires Microsoft Word + pywin32 on the server, which is not available.'),
+        }, 503)
+    _schedule_pdf_build(gen_file.id)
+    return _pdf_json({'status': 'building'})
+
+
+@generator_bp.route('/pdf/<int:file_id>/status')
+@login_required
+def pdf_status(file_id):
+    """``{status: ready|building|failed|absent}``. ``failed`` carries ``error``."""
+    ctx, err = _pdf_precheck(file_id)
+    if err:
+        return err
+    gen_file, _src, pdf_path = ctx
+    if os.path.exists(pdf_path):
+        _mark_pdf_build(gen_file.id, 'ready')
+        return _pdf_json({'status': 'ready'})
+    status, error = _pdf_build_state(gen_file.id)
+    if status == 'failed':
+        return _pdf_json({
+            'status': 'failed',
+            'error': _t('PDF generation failed: {error}', error=error or ''),
+        })
+    return _pdf_json({'status': status})
+
+
 @generator_bp.route('/pdf/<int:file_id>')
 @login_required
 def download_pdf(file_id):
-    """Serve the PDF version of a completed GeneratedFile.
+    """Send the cached PDF sibling. Does not run Word.
 
-    If the PDF sibling already exists on disk it is sent directly.
-    Otherwise it is built on the fly (DOCX → PDF, or ZIP-of-DOCX →
-    ZIP-of-PDF) using Microsoft Word COM, cached next to the source
-    file, and then sent. The whole thing is synchronous — long jobs
-    will hold the request open until Word finishes.
+    A missing sibling is 409 — the build is ``POST .../build``. Holding
+    Word inside this request is what made the reverse proxy return 504
+    on a large set (no bytes until every document was exported).
 
     Permission: ``files_policy.can_download`` (owner, super admin, or a share
     recipient who can read every subject of the file's questions).
     """
-    gen_file = GeneratedFile.query.get_or_404(file_id)
-
-    # All error paths return JSON so that the fetch-driven frontend
-    # (`buildAndDownloadPdf` in my_files.html) can surface them via toast.
-    # Successful response is a binary `send_file`.
-    if not files_policy.can_download(gen_file, current_user):
-        return jsonify({'error': _t('Access denied')}), 403
-
-    if gen_file.status != 'completed':
-        return jsonify({'error': _t('File is not ready yet — wait for generation to finish.')}), 409
-
-    sibling_filename = _pdf_sibling_filename(gen_file.filename)
-    if sibling_filename is None:
-        return jsonify({'error': _t('This file is not convertible to PDF (already a PDF or unsupported type).')}), 400
-
-    output_path = generated_file_dir(gen_file)
-    src_path = os.path.join(output_path, gen_file.filename)
-    pdf_path = os.path.join(output_path, sibling_filename)
-
-    if not os.path.exists(src_path):
-        return jsonify({'error': _t('Source file not found on disk.')}), 404
-
+    ctx, err = _pdf_precheck(file_id)
+    if err:
+        return err
+    gen_file, _src, pdf_path = ctx
     if not os.path.exists(pdf_path):
-        if not word_com.IS_AVAILABLE:
-            return jsonify({
-                'error': _t('PDF generation requires Microsoft Word + pywin32 on the server, which is not available.')
-            }), 503
-        try:
-            app = current_app._get_current_object()
-            if gen_file.filename.lower().endswith('.zip'):
-                _build_pdf_zip_from_docx_zip(app, src_path, pdf_path)
-            else:
-                _build_pdf_from_docx(app, src_path, pdf_path)
-        except Exception as e:
-            logger.exception('PDF build failed for gen_file_id=%s', gen_file.id)
-            return jsonify({'error': _t('PDF generation failed: {error}', error=e)}), 500
+        return _pdf_json({'error': _t('PDF is not ready yet.')}, 409)
 
-    # Pretty download name preserves the display_name + correct extension.
     pretty_ext = '.pdf.zip' if gen_file.filename.lower().endswith('.zip') else '.pdf'
     download_name = (gen_file.display_name or 'document') + pretty_ext
     mimetype = 'application/zip' if pretty_ext == '.pdf.zip' else 'application/pdf'

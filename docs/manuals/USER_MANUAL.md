@@ -344,10 +344,10 @@ Choose **Compact answer key** for MC questions (answers after all questions only
 Generation always produces **Word (.docx)** — there is no longer a DOCX/PDF radio on this page.
 
 If you also want a PDF version you have two equivalent options:
-- **On the Generate page**: once the green "Document <name> is ready!" banner appears, click the red **Get PDF** button right next to **Download**. The button shows a spinner while Word builds the PDF on the server, downloads it, then flips into a solid red **Download PDF** link so any subsequent clicks are instant.
-- **On the My Files page**: click the red PDF button beside the green Download button on the row. Same flow, same caching.
+- **On the Generate page**: once the green "Document <name> is ready!" banner appears, click the red **Get PDF** button right next to **Download**. The button shows a spinner while Word builds the PDF on the server. A large paper can take several minutes; the page keeps checking in the background, then the browser downloads the file. The button flips into a solid red **Download PDF** link so any later click is instant.
+- **On the My Files page**: click the red PDF button beside the green Download button on the row. Same flow, same caching. If a PDF was already built, that button is the solid one and downloads straight away.
 
-Either way, the first click builds the PDF using Microsoft Word on the server (equations, MathType objects, and embedded objects are preserved with full fidelity) and the result is cached on disk. Deleting the row also removes its cached PDF. For split jobs the PDF button produces a `.zip` of `.pdf` files (one per group) with the same structure as the source ZIP.
+Either way, the first click builds the PDF using Microsoft Word on the server (equations, MathType objects, and embedded objects are preserved with full fidelity) and the result is cached on disk. Deleting the row also removes its cached PDF. For split jobs the PDF button produces a `.zip` of `.pdf` files (one per group) with the same structure as the source ZIP. Open that zip to get the individual PDFs.
 
 #### Format Priority
 When a question has both an image (IMG), a Markdown (MD), and a Word document (DOC) for the same slot, this widget controls which format wins. Drag the chips to reorder. Default is `IMG → MD → DOC`.

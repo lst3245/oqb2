@@ -133,7 +133,7 @@ All `/sso/*` routes answer **404** unless `SMS_SSO_ENABLED` is on and `PUBLIC_OR
 | GET | `/dashboard/api/subtopics`, `/dashboard/api/subchapters` | viewer on every parent's subject |
 | GET | `/dashboard/api/doc_thumbnail/<id>.png` | orphan asset → super admin only (404) |
 | GET/POST | `/generate/`, POST `/generate/create` | questions without `user` level dropped |
-| GET | `/generate/download/<id>`, `/generate/pdf/<id>`; POST `/user/files/bulk-download` | `files_policy.can_download` |
+| GET | `/generate/download/<id>`, `/generate/pdf/<id>`, `/generate/pdf/<id>/status`; POST `/generate/pdf/<id>/build`, `/user/files/bulk-download` | `files_policy.can_download` |
 | GET | `/user/profiles/<id>/data` | shared: viewer on the profile's subject; ids scrubbed |
 | GET | `/user/gen-profiles/<id>/data`, `/user/files/<id>/filter`, `/user/files/<id>/generation_options` | ids scrubbed |
 | GET | `/user/files/list` | `can_generate()` |

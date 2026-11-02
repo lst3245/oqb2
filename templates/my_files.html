@@ -1334,12 +1334,12 @@ function applySearchHighlight() {
 // Lazy PDF build + download
 // ---------------------------------------------------------------------------
 
-// First click on a row's PDF button when the sibling PDF doesn't exist yet:
-// hit /generate/pdf/<id>, which synchronously runs Word COM and streams
-// the bytes back. We show a spinner on the button for the duration so the
-// user knows something is happening (Word can take 5–60 s for big jobs).
-// On success the bytes are saved as a blob-download and the section is
-// reloaded so the button flips to its "already-built" link variant.
+// First click when the sibling PDF does not exist yet. POST .../build
+// returns immediately and Word runs in the background; we poll .../status
+// every 2 s. A single request that waited on Word made the reverse proxy
+// return 504 once the export ran past its read timeout. When the file is
+// ready, a normal link download starts (the browser streams it) and the
+// section reloads so the button flips to its cached-link variant.
 function buildAndDownloadPdf(fileId, btnEl) {
     if (!btnEl) return;
     if (btnEl.dataset.busy === '1') return; // double-click guard
@@ -1350,39 +1350,41 @@ function buildAndDownloadPdf(fileId, btnEl) {
     btnEl.title = OQB.t('Building PDF…');
 
     const url = `{{ url_for('generator.download_pdf', file_id=0) }}`.replace('/0', `/${fileId}`);
-    fetch(url, { credentials: 'same-origin' })
-        .then(async resp => {
-            if (!resp.ok) {
-                // Try to surface server-side JSON error message
-                let msg = OQB.t('PDF build failed (HTTP {status})', {status: resp.status});
-                try {
-                    const ct = resp.headers.get('content-type') || '';
-                    if (ct.includes('application/json')) {
-                        const j = await resp.json();
-                        if (j && j.error) msg = j.error;
-                    }
-                } catch (_) { /* ignore */ }
-                throw new Error(msg);
+    const buildUrl = `{{ url_for('generator.build_pdf', file_id=0) }}`.replace('/0', `/${fileId}`);
+    const statusUrl = `{{ url_for('generator.pdf_status', file_id=0) }}`.replace('/0', `/${fileId}`);
+
+    function jsonError(resp, body) {
+        return (body && body.error)
+            || OQB.t('PDF build failed (HTTP {status})', {status: resp.status});
+    }
+
+    async function waitUntilReady() {
+        const start = await fetch(buildUrl, { method: 'POST', credentials: 'same-origin' });
+        let body = {};
+        try { body = await start.json(); } catch (_) { /* proxy HTML */ }
+        if (!start.ok) throw new Error(jsonError(start, body));
+        if (body.status === 'ready') return;
+        for (;;) {
+            await new Promise(r => setTimeout(r, 2000));
+            const resp = await fetch(statusUrl, { credentials: 'same-origin' });
+            let j = {};
+            try { j = await resp.json(); } catch (_) { /* proxy HTML */ }
+            if (j.status === 'ready') return;
+            if (j.status === 'failed' || j.status === 'absent') {
+                throw new Error(j.error || OQB.t('PDF build failed'));
             }
-            // Pull the filename out of Content-Disposition if present so
-            // the saved file matches what the server picked.
-            let downloadName = 'document.pdf';
-            const cd = resp.headers.get('content-disposition') || '';
-            const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
-            if (m) downloadName = decodeURIComponent(m[1]);
-            const blob = await resp.blob();
-            // Trigger a save dialog
+            if (!resp.ok) throw new Error(jsonError(resp, j));
+        }
+    }
+
+    waitUntilReady()
+        .then(() => {
             const a = document.createElement('a');
-            const blobUrl = URL.createObjectURL(blob);
-            a.href = blobUrl;
-            a.download = downloadName;
+            a.href = url;
             document.body.appendChild(a);
             a.click();
             a.remove();
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
             showToast(OQB.t('PDF ready — download started.'), 'success');
-            // Refresh the section so the button flips to the cached-link
-            // variant for subsequent clicks.
             const tr = document.querySelector(`tr[data-file-id="${fileId}"]`);
             const sectionId = tr ? parseInt(tr.closest('tbody.section-files-tbody')?.dataset?.sectionId) : null;
             if (sectionId) {
@@ -1394,6 +1396,7 @@ function buildAndDownloadPdf(fileId, btnEl) {
             showToast(err.message || OQB.t('PDF build failed'), 'danger');
         })
         .finally(() => {
+            if (!btnEl.isConnected) return;
             btnEl.disabled = false;
             btnEl.dataset.busy = '0';
             btnEl.innerHTML = originalHtml;

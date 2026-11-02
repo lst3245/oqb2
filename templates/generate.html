@@ -2184,11 +2184,11 @@ function showStatusBanner(type, html) {
     window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
-// Lazy PDF build from the "document ready" banner. Mirrors the My Files
-// row-button flow: GET /generate/pdf/<id> runs Word COM synchronously to
-// build the sibling .pdf (or .pdf.zip), streams it back, and we save it
-// via a blob URL. On success the button flips into a green "PDF ready"
-// state so a subsequent click is instant.
+// Lazy PDF from the "document ready" banner. POST .../build returns at
+// once; Word runs in the background and we poll .../status every 2 s.
+// Waiting on Word inside one GET is what made the reverse proxy answer
+// 504 for a large set. On success a normal link download starts and the
+// button flips into a solid red "Download PDF" link.
 function buildPdfFromBanner(fileId, btnEl) {
     if (!btnEl || btnEl.dataset.busy === '1') return;
     btnEl.dataset.busy = '1';
@@ -2197,34 +2197,40 @@ function buildPdfFromBanner(fileId, btnEl) {
     btnEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + OQB.t('Building PDF…');
 
     const url = `{{ url_for('generator.download_pdf', file_id=0) }}`.replace('/0', `/${fileId}`);
-    fetch(url, { credentials: 'same-origin' })
-        .then(async resp => {
-            if (!resp.ok) {
-                let msg = OQB.t('PDF build failed (HTTP {status})', {status: resp.status});
-                try {
-                    const ct = resp.headers.get('content-type') || '';
-                    if (ct.includes('application/json')) {
-                        const j = await resp.json();
-                        if (j && j.error) msg = j.error;
-                    }
-                } catch (_) { /* ignore */ }
-                throw new Error(msg);
+    const buildUrl = `{{ url_for('generator.build_pdf', file_id=0) }}`.replace('/0', `/${fileId}`);
+    const statusUrl = `{{ url_for('generator.pdf_status', file_id=0) }}`.replace('/0', `/${fileId}`);
+
+    function jsonError(resp, body) {
+        return (body && body.error)
+            || OQB.t('PDF build failed (HTTP {status})', {status: resp.status});
+    }
+
+    async function waitUntilReady() {
+        const start = await fetch(buildUrl, { method: 'POST', credentials: 'same-origin' });
+        let body = {};
+        try { body = await start.json(); } catch (_) { /* proxy HTML */ }
+        if (!start.ok) throw new Error(jsonError(start, body));
+        if (body.status === 'ready') return;
+        for (;;) {
+            await new Promise(r => setTimeout(r, 2000));
+            const resp = await fetch(statusUrl, { credentials: 'same-origin' });
+            let j = {};
+            try { j = await resp.json(); } catch (_) { /* proxy HTML */ }
+            if (j.status === 'ready') return;
+            if (j.status === 'failed' || j.status === 'absent') {
+                throw new Error(j.error || OQB.t('PDF build failed'));
             }
-            let downloadName = 'document.pdf';
-            const cd = resp.headers.get('content-disposition') || '';
-            const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
-            if (m) downloadName = decodeURIComponent(m[1]);
-            const blob = await resp.blob();
+            if (!resp.ok) throw new Error(jsonError(resp, j));
+        }
+    }
+
+    waitUntilReady()
+        .then(() => {
             const a = document.createElement('a');
-            const blobUrl = URL.createObjectURL(blob);
-            a.href = blobUrl;
-            a.download = downloadName;
+            a.href = url;
             document.body.appendChild(a);
             a.click();
             a.remove();
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-            // Flip the button into a "cached" state: solid red link that
-            // downloads instantly next time (the server has the file).
             const parent = btnEl.parentNode;
             if (parent) {
                 const link = document.createElement('a');
