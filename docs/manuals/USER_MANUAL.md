@@ -330,7 +330,7 @@ When answers are included, pick what to print separately for **MC questions** an
 - **Text First** — uses the Answer Text field; falls back to the ANS image
 
 #### Compact MC Answer Keys
-Choose **Compact answer key** for MC questions (answers after all questions only) to place each contiguous run of MC answers in a space-saving block. Compact keys always use the question's **Answer Text** field rather than the long ANS image.
+Choose **Compact answer key** for MC questions (answers after all questions only) to place each contiguous run of MC answers in a space-saving block. The key settings appear directly under **Content and answers**. Compact keys always use the question's **Answer Text** field rather than the long ANS image.
 
 - Choose a visible **Word table** or **Whitespace / tabs and new lines**.
 - Set **Answers per row** (default 5).

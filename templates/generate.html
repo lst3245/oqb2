@@ -120,6 +120,56 @@
                             </div>
                         </div>
 
+                        <!-- Compact MC answer key (MC answers = Compact answer key; after all questions only) -->
+                        <div class="card mb-3 border-primary" id="compactMcAnswerKeyPanel" style="display: none;">
+                            <div class="card-header bg-primary bg-opacity-10 py-2">
+                                <strong>{{ t('Compact MC answer key') }}</strong>
+                            </div>
+                            <div class="card-body py-2" id="compactMcAnswerKeyOptions">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-bold mb-1" for="mcKeyLayout">{{ t('Layout') }}</label>
+                                        <select class="form-select form-select-sm" id="mcKeyLayout" name="mc_key_layout">
+                                            <option value="table" selected>{{ t('Word table (visible grid)') }}</option>
+                                            <option value="tabs">{{ t('Whitespace / tabs and new lines') }}</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small fw-bold mb-1" for="mcKeyColumns">{{ t('Answers per row') }}</label>
+                                        <input type="number" class="form-control form-control-sm" id="mcKeyColumns"
+                                               name="mc_key_columns" value="5" min="1" max="20">
+                                    </div>
+                                    <div class="col-6 col-md-3">
+                                        <label class="form-label small fw-bold mb-1" for="mcKeyMaxRows">{{ t('Maximum rows') }}</label>
+                                        <input type="number" class="form-control form-control-sm" id="mcKeyMaxRows"
+                                               name="mc_key_max_rows" value="" min="1" max="100" placeholder="{{ t('Auto') }}">
+                                    </div>
+                                </div>
+                                <div id="mcKeyNumberingOptions">
+                                    <div class="form-check mb-1">
+                                        <input type="checkbox" class="form-check-input" id="mcKeyIncludeSeq"
+                                               name="mc_key_include_seq" checked>
+                                        <label class="form-check-label small" for="mcKeyIncludeSeq">
+                                            {{ t('Show the generated paper number with each answer') }}
+                                        </label>
+                                    </div>
+                                    <div class="form-check mb-1">
+                                        <input type="checkbox" class="form-check-input" id="mcKeyRangeTitle"
+                                               name="mc_key_range_title">
+                                        <label class="form-check-label small" for="mcKeyRangeTitle">
+                                            {{ t('Show a generated-number range title above each block (for example Q21–Q40)') }}
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="alert alert-light border py-1 px-2 small mb-2" id="mcKeyNumberingHint" style="display:none;">
+                                    {{ t('Compact answers will be shown without generated labels. Turn on sequential numbering below to add them.') }}
+                                </div>
+                                <small class="text-muted d-block">
+                                    {{ t('Compact MC cells always use Answer Text. MC questions without a short single-line Answer Text are printed in full as Answer (with the fallback above). Question ID headings are ignored for MC answers in this mode.') }}
+                                </small>
+                            </div>
+                        </div>
+
                         <!-- Numbering and headings -->
                         <div class="card mb-3">
                             <div class="card-header py-2">
@@ -186,56 +236,6 @@
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        <!-- Compact MC answer key (MC answers = Compact answer key; after all questions only) -->
-                        <div class="card mb-3 border-primary" id="compactMcAnswerKeyPanel" style="display: none;">
-                            <div class="card-header bg-primary bg-opacity-10 py-2">
-                                <strong>{{ t('Compact MC answer key') }}</strong>
-                            </div>
-                            <div class="card-body py-2" id="compactMcAnswerKeyOptions">
-                                <div class="row g-2 mb-2">
-                                    <div class="col-md-6">
-                                        <label class="form-label small fw-bold mb-1" for="mcKeyLayout">{{ t('Layout') }}</label>
-                                        <select class="form-select form-select-sm" id="mcKeyLayout" name="mc_key_layout">
-                                            <option value="table" selected>{{ t('Word table (visible grid)') }}</option>
-                                            <option value="tabs">{{ t('Whitespace / tabs and new lines') }}</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        <label class="form-label small fw-bold mb-1" for="mcKeyColumns">{{ t('Answers per row') }}</label>
-                                        <input type="number" class="form-control form-control-sm" id="mcKeyColumns"
-                                               name="mc_key_columns" value="5" min="1" max="20">
-                                    </div>
-                                    <div class="col-6 col-md-3">
-                                        <label class="form-label small fw-bold mb-1" for="mcKeyMaxRows">{{ t('Maximum rows') }}</label>
-                                        <input type="number" class="form-control form-control-sm" id="mcKeyMaxRows"
-                                               name="mc_key_max_rows" value="" min="1" max="100" placeholder="{{ t('Auto') }}">
-                                    </div>
-                                </div>
-                                <div id="mcKeyNumberingOptions">
-                                    <div class="form-check mb-1">
-                                        <input type="checkbox" class="form-check-input" id="mcKeyIncludeSeq"
-                                               name="mc_key_include_seq" checked>
-                                        <label class="form-check-label small" for="mcKeyIncludeSeq">
-                                            {{ t('Show the generated paper number with each answer') }}
-                                        </label>
-                                    </div>
-                                    <div class="form-check mb-1">
-                                        <input type="checkbox" class="form-check-input" id="mcKeyRangeTitle"
-                                               name="mc_key_range_title">
-                                        <label class="form-check-label small" for="mcKeyRangeTitle">
-                                            {{ t('Show a generated-number range title above each block (for example Q21–Q40)') }}
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="alert alert-light border py-1 px-2 small mb-2" id="mcKeyNumberingHint" style="display:none;">
-                                    {{ t('Compact answers will be shown without generated labels. Turn on sequential numbering above to add them.') }}
-                                </div>
-                                <small class="text-muted d-block">
-                                    {{ t('Compact MC cells always use Answer Text. MC questions without a short single-line Answer Text are printed in full as Answer (with the fallback above). Question ID headings are ignored for MC answers in this mode.') }}
-                                </small>
                             </div>
                         </div>
 

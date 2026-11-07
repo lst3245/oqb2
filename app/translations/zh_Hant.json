@@ -2903,7 +2903,7 @@
   "Auto": "自動",
   "Show the generated paper number with each answer": "每個答案顯示生成的試卷編號",
   "Show a generated-number range title above each block (for example Q21–Q40)": "每個區塊上方顯示生成編號範圍標題（例如 Q21–Q40）",
-  "Compact answers will be shown without generated labels. Turn on sequential numbering above to add them.": "精簡答案不會顯示生成編號。開啟上方的順序編號即可加上。",
+  "Compact answers will be shown without generated labels. Turn on sequential numbering below to add them.": "精簡答案不會顯示生成編號。開啟下方的順序編號即可加上。",
   "Compact MC cells always use Answer Text. MC questions without a short single-line Answer Text are printed in full as Answer (with the fallback above). Question ID headings are ignored for MC answers in this mode.": "精簡 MC 格子一律使用答案文字。沒有單行短答案文字的 MC 題目會以完整答案印出（並套用上方的後備）。此模式下 MC 答案會忽略題目 ID 標題。",
   "Question order": "題目次序",
   "Sort automatically by Question Number, Year, Topic, and other fields": "按題號、年份、課題及其他欄位自動排序",

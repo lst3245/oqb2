@@ -17,15 +17,20 @@ class GenerationOptionsTemplateTests(unittest.TestCase):
     def test_template_has_valid_jinja_syntax(self):
         Environment().parse(self.template)
 
-    def test_sequential_numbering_is_default_and_precedes_compact_keys(self):
+    def test_sequential_numbering_is_default_and_follows_compact_keys(self):
         sequential = re.search(
             r'id="showSeqNo"[^>]*name="show_seq_no"[^>]*checked',
             self.template,
         )
         self.assertIsNotNone(sequential)
-        self.assertLess(
-            self.template.index('id="showSeqNo"'),
-            self.template.index('id="compactMcAnswerKeyPanel"'),
+        answers = self.template.index('id="answerPlacement"')
+        compact = self.template.index('id="compactMcAnswerKeyPanel"')
+        numbering = self.template.index('id="showSeqNo"')
+        self.assertLess(answers, compact)
+        self.assertLess(compact, numbering)
+        self.assertIn(
+            'Turn on sequential numbering below to add them.',
+            self.template,
         )
 
     def test_compact_numbering_is_hidden_instead_of_disabled(self):
